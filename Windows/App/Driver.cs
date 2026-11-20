@@ -64,10 +64,14 @@ sealed partial class MainWindow
         }
         // Полоса и колонка видны на любой странице, в том числе на чужой.
         // Адресная строка — сама кнопка, а не то, что внутри неё; спрятанная (режим
-        // фокуса) в список не входит, как и спрятанная колонка.
-        IEnumerable<Control> Chrome() => new DependencyObject[] { doors, panel }
-            .Where(part => part is not UIElement { Visibility: Visibility.Collapsed })
-            .SelectMany(Within).Prepend(bar.View).OfType<Control>().Where(control => control.Visibility == Visibility.Visible && Called(control).Length > 0);
+        // фокуса) в список не входит, как и спрятанная колонка. В конце — открытые
+        // окошки полосы (карточка сайта).
+        IEnumerable<Control> Chrome() => (bar.View.Visibility == Visibility.Visible ? new Control[] { bar.Site, bar.Edit } : [])
+            .Concat(new DependencyObject[] { doors, panel, actions.View, offer.View }
+                .Concat(VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Select(popup => popup.Child).OfType<DependencyObject>())
+                .Where(part => part is not UIElement { Visibility: Visibility.Collapsed })
+                .SelectMany(Within).OfType<Control>())
+            .Where(control => control.Visibility == Visibility.Visible && Called(control).Length > 0);
         // То, что прочтёт экранный диктор, — одно описание и для sheet, и для chrome.
         JsonNode Describe(Control control) => new JsonObject
         {
@@ -224,6 +228,10 @@ sealed partial class MainWindow
                 // Как Ctrl+S, но к названному состоянию.
                 if (folded != Flag("on")) ToggleFold();
                 return new JsonObject { ["folded"] = folded };
+            case "hover":
+                // Как указатель над адресной строкой и его уход.
+                bar.Hover(Flag("on"));
+                return new JsonObject();
             case "reveal":
                 // Как указатель у левого края и как его уход с колонки.
                 if (Flag("on")) Reveal();
@@ -239,6 +247,30 @@ sealed partial class MainWindow
                 }
                 else Uncrown();
                 return new JsonObject { ["crowned"] = crowned };
+            case "actions":
+                // Кнопки расширений в полосе, по порядку.
+                return new JsonArray(actions.All.Select(button => (JsonNode)new JsonObject { ["id"] = button.Id, ["name"] = button.Name }).ToArray());
+            case "act":
+                // Как нажатие на кнопку расширения: его окно открывается (открытое — закрывается).
+                actions.Press(Text("id"));
+                return new JsonObject();
+            case "popup":
+            {
+                // Открытое окно расширения: адрес, размер и, с code, ответ
+                // выражения в нём (обещание дожидается).
+                if (actions.Popup is not { } popup) return new JsonObject { ["open"] = false };
+                JsonNode? said = null;
+                if (request.TryGetProperty("code", out var code) && popup.Core is { } inside)
+                {
+                    var answer = JsonNode.Parse(await inside.CallDevToolsProtocolMethodAsync("Runtime.evaluate",
+                        JsonSerializer.Serialize(new { expression = code.GetString(), awaitPromise = true, returnByValue = true })));
+                    said = answer?["result"]?["value"]?.DeepClone() ?? answer?["exceptionDetails"]?["exception"]?["description"]?.DeepClone();
+                }
+                return new JsonObject
+                {
+                    ["open"] = true, ["url"] = popup.Core?.Source, ["width"] = popup.Width, ["height"] = popup.Height, ["said"] = said,
+                };
+            }
             case "shield":
                 // Открытые страницы узнают об этом из Settings.Changed.
                 Shield.Enabled = Flag("on");
@@ -293,6 +325,16 @@ sealed partial class MainWindow
                         .GetRegionRects(NonClientRegionKind.Caption) ?? []).Select(hole => (JsonNode)new JsonArray(hole.X, hole.Y, hole.Width, hole.Height))]),
                     ["buttons"] = AppWindow.TitleBar.PreferredHeightOption != Microsoft.UI.Windowing.TitleBarHeightOption.Collapsed,
                     ["focused"] = focused, ["crowned"] = crowned,
+                    // Номер процесса: bench.py stop закрывает по нему окно штатно.
+                    ["pid"] = Environment.ProcessId,
+                    // Настройки движка, как их видит профиль первого живого движка.
+                    ["profile"] = tabs.All.Select(tab => tab.View?.CoreWebView2).FirstOrDefault(core => core is not null)?.Profile is { } own
+                        ? new JsonObject
+                        {
+                            ["tracking"] = own.PreferredTrackingPreventionLevel.ToString(),
+                            ["passwords"] = own.IsPasswordAutosaveEnabled, ["autofill"] = own.IsGeneralAutofillEnabled,
+                        }
+                        : null,
                 };
             default:
                 throw new ArgumentException("unknown command");

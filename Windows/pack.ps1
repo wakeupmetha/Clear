@@ -5,9 +5,28 @@
 # Итог — dist\Releases\aerio-browser-win-Setup.exe и рядом переносная сборка
 # (Portable.zip). Версия берётся из <Version> в App\App.csproj. Подписи кода нет:
 # Windows при первом запуске установщика покажет предупреждение SmartScreen.
+#
+#   Windows/pack.ps1 -Bump
+#
+# сначала поднимает последнюю цифру версии в App\App.csproj: так собирает
+# обновление изнутри приложения (App/Updater.cs) — Velopack ставит только версию
+# выше установленной.
+param([switch]$Bump)
 $ErrorActionPreference = "Stop"
 Push-Location $PSScriptRoot
 try {
+    if ($Bump) {
+        # Через .NET, а не Get-Content: Windows PowerShell читает файл без BOM как
+        # ANSI и записал бы русские комментарии кракозябрами. Без BOM и с теми же
+        # концами строк: файл меняется только в версии.
+        $file = (Resolve-Path App\App.csproj).Path
+        $project = [IO.File]::ReadAllText($file)
+        $old = [regex]::Match($project, '<Version>(\d+)\.(\d+)\.(\d+)</Version>')
+        if (-not $old.Success) { throw "no <Version>x.y.z</Version> in App.csproj" }
+        $new = "$($old.Groups[1]).$($old.Groups[2]).$([int]$old.Groups[3].Value + 1)"
+        [IO.File]::WriteAllText($file, $project.Replace($old.Value, "<Version>$new</Version>"))
+        "version: $new"
+    }
     $version = ([xml](Get-Content App\App.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
     # ponytail: прошлые выпуски стираются, поэтому каждый выпуск полный. Когда
     # появится источник обновлений, dist\Releases надо хранить: из него vpk

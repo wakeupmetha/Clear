@@ -16,6 +16,9 @@ namespace Browser;
 /// она взята, Options — страница его настроек из манифеста.
 public sealed record Installed(string Id, string Name, string Version, string Folder, string? Options, string? Source);
 
+/// Кнопка расширения из манифеста (Extensions.Button).
+public sealed record Knob(string? Popup, string? Title, string? Icon);
+
 public static class Extensions
 {
     public static string Root => Store.File("Extensions");
@@ -24,14 +27,38 @@ public static class Extensions
     /// Что о себе говорит manifest.json папки; null — это не расширение.
     public static (string Name, string Version, string? Options)? Manifest(string folder)
     {
+        if (Read(folder) is not { } manifest) return null;
+        if (Text(manifest["name"]) is not { } name || Text(manifest["version"]) is not { } version) return null;
+        var options = (manifest["options_ui"] is JsonObject ui ? Text(ui["page"]) : null) ?? Text(manifest["options_page"]);
+        return (name, version, options);
+    }
+
+    /// Кнопка расширения в полосе окна: action (MV3) или browser_action (MV2);
+    /// null — кнопки у него нет. Popup и Icon — пути внутри папки. Значок —
+    /// наименьший не меньше size точек, иначе самый крупный; без default_icon —
+    /// из icons, как в Chrome.
+    public static Knob? Button(string folder, int size)
+    {
+        if (Read(folder) is not { } manifest || (manifest["action"] ?? manifest["browser_action"]) is not JsonObject action) return null;
+        return new Knob(Text(action["default_popup"]), Text(action["default_title"]), Pick(action["default_icon"], size) ?? Pick(manifest["icons"], size));
+    }
+
+    static string? Pick(JsonNode? icons, int size)
+    {
+        if (Text(icons) is { } one) return one;
+        if (icons is not JsonObject sizes) return null;
+        var known = sizes.Select(pair => (Size: int.TryParse(pair.Key, out var n) ? n : 0, Path: Text(pair.Value)))
+            .Where(icon => icon.Size > 0 && icon.Path is not null).OrderBy(icon => icon.Size).ToList();
+        return known.Count == 0 ? null : known.FirstOrDefault(icon => icon.Size >= size).Path ?? known[^1].Path;
+    }
+
+    static JsonObject? Read(string folder)
+    {
         try
         {
             // Chrome прощает манифесту комментарии и лишние запятые.
             var read = new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
-            if (JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "manifest.json")), null, read) is not JsonObject manifest) return null;
-            if (Text(manifest["name"]) is not { } name || Text(manifest["version"]) is not { } version) return null;
-            var options = (manifest["options_ui"] is JsonObject ui ? Text(ui["page"]) : null) ?? Text(manifest["options_page"]);
-            return (name, version, options);
+            return JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "manifest.json")), null, read) as JsonObject;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or ArgumentException) { return null; }
     }

@@ -1,13 +1,15 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Shapes;
 using Microsoft.Web.WebView2.Core;
 using Windows.System;
+using Windows.UI.Core;
 using static Browser.Ui;
 
 namespace Browser;
@@ -17,8 +19,8 @@ namespace Browser;
 /// заголовком, в каждой карточка строк; строка — значок в плитке, что это,
 /// одна строка о том, что она делает, и элемент управления справа.
 ///
-/// Разделов слева и поиска по настройкам, как в апстриме, нет: настроек пока
-/// шесть, они видны все сразу.
+/// Разделов слева и поиска по настройкам, как в апстриме, нет: групп пока
+/// десять, они видны все сразу.
 ///
 /// Страница — только вид на Settings. Элементы пишут туда, а окно, вкладки и
 /// сама страница узнают об изменении из Settings.Changed. Поэтому Ctrl+S при
@@ -30,6 +32,9 @@ sealed class SettingsPage : Grid
     /// Элементы сейчас приводятся к настройкам: это не решение человека,
     /// записывать его обратно не надо.
     bool following;
+
+    /// Строка сочетаний ждёт новое сочетание: сочетания окна молчат (MainWindow).
+    internal static bool Recording { get; private set; }
 
     public SettingsPage(Tabs tabs)
     {
@@ -44,9 +49,9 @@ sealed class SettingsPage : Grid
                 Choice("Appearance", [("light", "Light"), ("dark", "Dark"), ("system", "System")],
                     () => Settings.Text("look") is "light" or "dark" ? Settings.Text("look")! : "system",
                     look => Settings.Set("look", look))),
-            Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; the tabs come out at the left edge. Ctrl+S",
+            Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; the tabs come out at the left edge" + Keyed("view.fold"),
                 Switch("Fold the tab column", () => Settings.Bool("sidebar.folded"), on => Settings.Set("sidebar.folded", on))),
-            Row(Ui.Focus, "Focus mode", "Only the page: the tabs come out at the left edge, the top bar at the top edge. Ctrl+Shift+F",
+            Row(Ui.Focus, "Focus mode", "Only the page: the tabs come out at the left edge, the top bar at the top edge" + Keyed("view.focus"),
                 Switch("Focus mode", () => Settings.Bool("window.focus"), on => Settings.Set("window.focus", on)))));
         column.Children.Add(Group("Search", Ui.Find,
             Row(Ui.TextSearch, "Search with", "Where words that aren't an address go", EnginePicker()),
@@ -55,15 +60,24 @@ sealed class SettingsPage : Grid
             Row(Ui.ShieldBan, "Block ads and trackers",
                 Shield.Delegated ? "uBlock Origin blocks them, YouTube ads too" : "Third parties whose only job is to watch or to sell",
                 Switch("Block ads and trackers", () => Shield.Enabled, on => Shield.Enabled = on)),
+            // sites.keep — ключ апстрима, и он про обратное: «оставить сайтам входы».
+            Row(Ui.EyeOff, "Prevent cross-site tracking", "The engine's own tracking prevention, balanced as in Edge",
+                Switch("Prevent cross-site tracking", () => !Settings.Bool("sites.keep"), on => Settings.Set("sites.keep", !on))),
             // С uBlock свой список сайтов не действует: доверенные сайты — в его панели.
             Shield.Delegated
                 ? Row(Ui.Sliders, "uBlock Origin", "Filter lists, trusted sites, the logger. uBlock Origin 1.76.6, GPLv3",
                     Pill("Open uBlock Origin settings", Word("Open"), () => { if (UBlock.Dashboard is { } dashboard) tabs.Open(dashboard); }))
                 : PausedSites()));
+        column.Children.Add(Group("Passwords and Forms", Ui.KeyRound, FormRows(tabs)));
+        var (permissions, data) = SiteRows(tabs);
+        column.Children.Add(Group("Site Permissions", Ui.ShieldCheck, permissions));
+        column.Children.Add(Group("Cookies and Site Data", Ui.Cookie, data));
+        column.Children.Add(Group("Keyboard Shortcuts", Ui.Keyboard, ShortcutRows()));
         column.Children.Add(Group("Extensions", Ui.Puzzle, ExtensionRows(tabs)));
         column.Children.Add(Group("Engine", Ui.Cpu,
             Row(Ui.Flask, "Engine experiments", "The engine's own flags page, edge://flags. For testing: a flag can break pages",
                 Pill("Open engine experiments", Word("Open"), () => tabs.Open(new Uri("edge://flags"))))));
+        column.Children.Add(Group("Updates", Ui.Reload, UpdateRow()));
 
         Children.Add(new ScrollViewer
         {
@@ -164,33 +178,221 @@ sealed class SettingsPage : Grid
         return row;
     }
 
-    /// Включено или выключено, чернилами, а не синим. Switch из апстрима.
+    /// Обновить aerio изнутри: пересобрать из исходников на этом компьютере и
+    /// поставить (Updater). Ход и ошибка — строкой под описанием.
+    static StackPanel UpdateRow()
+    {
+        var status = new TextBlock { FontSize = 11.5, Foreground = Palette.Muted, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+        var word = Word("Update");
+        var pill = Pill("Rebuild and update aerio", word);
+        // Кнопку не выключаем: выключенная теряет фокус, и он прыгает в колонку.
+        // Второе нажатие во время сборки Updater сам пропускает.
+        void Building()
+        {
+            word.Text = "Building…";
+            status.Visibility = Visibility.Visible;
+            status.Foreground = Palette.Muted;
+            status.Text = "Building from the source, then installing. Takes a minute or two; aerio restarts";
+        }
+        if (Updater.Busy) Building();
+        pill.Click += async (_, _) =>
+        {
+            if (Updater.Busy) return;
+            Building();
+            try { await Updater.Update(App.Quit); }
+            // Сборка и установщик падают чем угодно; окно не должно падать вместе с ними.
+            catch (Exception e)
+            {
+                status.Text = $"Couldn't update: {e.Message}";
+                status.Foreground = Palette.Danger;
+                word.Text = "Update";
+            }
+        };
+        var detail = Updater.Source is null ? $"Version {Updater.Version}. The source isn't on this computer"
+            : !Updater.Installed ? $"Version {Updater.Version}. Only the installed aerio updates itself"
+            : $"Version {Updater.Version}. Builds aerio again from the source on this computer and installs it";
+        return Row(Ui.Reload, "Update aerio", detail, Updater.Installed ? pill : null, status);
+    }
+
+    /// Сочетание команды в конце описания строки: «. Ctrl+S». Берётся, когда
+    /// страница строится; ponytail: сменённое здесь же сочетание в описании
+    /// видно, когда настройки откроют заново.
+    static string Keyed(string id) => Shortcuts.Key(id) is { } key ? $". {key.Display}" : "";
+
+    /// Сочетания команд окна: Settings › Keyboard & Mouse › Shortcuts апстрима
+    /// (ShortcutsPage.swift). Поиска нет: команд пятнадцать, видны все сразу.
+    StackPanel[] ShortcutRows()
+    {
+        var rows = Shortcuts.All.Select(command => Line(command.Title, command.Also is { } also ? $"{also} too" : null, KeyBox(command))).ToList();
+        var all = Line("All shortcuts", "Back to the keys aerio came with",
+            Pill("Reset all shortcuts to defaults", Word("Reset All"), Shortcuts.ResetAll));
+        follow.Add(() => all.Visibility = Shortcuts.AnyChanged ? Visibility.Visible : Visibility.Collapsed);
+        rows.Add(all);
+        return [.. rows];
+    }
+
+    /// Сочетание команды: KeyBox апстрима. Нажать и набрать новое — оно
+    /// переходит сюда от команды, у которой было (если было — второе нажатие
+    /// того же сочетания как согласие). Esc — оставить как было, Backspace или
+    /// Delete — снять. Меню (правая кнопка, клавиша меню): снять или вернуть
+    /// умолчание.
+    Button KeyBox(Command command)
+    {
+        // Посередине по буквам, с полем снизу на две точки больше: как у Ui.Pill.
+        var word = new TextBlock
+        {
+            FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, TextLineBounds = TextLineBounds.Tight,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        };
+        var plate = new Border
+        {
+            MinWidth = 64, MinHeight = 24, MaxWidth = 280, Padding = new Thickness(10, 0, 10, 2),
+            CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1), Child = word,
+        };
+        var box = Ui.Bare(new Button { CornerRadius = new CornerRadius(7) }, $"{command.Title} shortcut", plate);
+        ToolTipService.SetToolTip(box, "Click, then press the new shortcut");
+        var listening = false;
+        var hovering = false;
+        string? note = null;
+        // Сочетание другой команды, нажатое один раз: второе нажатие забирает его.
+        Combo? taking = null;
+
+        void Paint()
+        {
+            var key = Shortcuts.Key(command.Id);
+            word.Text = taking is { } wanted && Shortcuts.Owner(wanted, command.Id) is { } other ? $"Used by {other.Title} — press again"
+                : note ?? (listening ? "Type a shortcut" : key?.Display ?? "None");
+            word.FontWeight = Shortcuts.IsChanged(command.Id) ? FontWeights.SemiBold : FontWeights.Normal;
+            word.Foreground = listening || key is not null ? Palette.Ink : Palette.Muted;
+            plate.Background = listening || hovering ? Palette.Hover : Palette.Ground;
+            plate.BorderBrush = listening ? Palette.Muted : Palette.Hairline;
+            // Диктор читает имя, а за ним — что сейчас написано на кнопке.
+            AutomationProperties.SetHelpText(box, word.Text);
+        }
+        void Listen()
+        {
+            listening = true;
+            note = null;
+            taking = null;
+            Recording = true;
+            Paint();
+        }
+        void Stop()
+        {
+            listening = false;
+            note = null;
+            taking = null;
+            Recording = false;
+            Paint();
+        }
+        // Почему это сочетание не годится — на миг, слушать не перестаём.
+        async void Say(string why)
+        {
+            note = why;
+            Paint();
+            await Task.Delay(1200);
+            if (note != why) return;
+            note = null;
+            Paint();
+        }
+
+        box.Click += (_, _) => { if (listening) Stop(); else Listen(); };
+        box.LostFocus += (_, _) => { if (listening) Stop(); };
+        // Закрытая страница не должна оставить окно без сочетаний.
+        box.Unloaded += (_, _) => { if (listening) Stop(); };
+        // Preview: раньше кнопки (Enter её нажал бы) и сочетаний окна.
+        box.PreviewKeyDown += (_, press) =>
+        {
+            if (!listening) return;
+            press.Handled = true;
+            bool ctrl = Down(VirtualKey.Control), shift = Down(VirtualKey.Shift), alt = Down(VirtualKey.Menu);
+            if (!ctrl && !shift && !alt && press.Key == VirtualKey.Escape)
+            {
+                Stop();
+                return;
+            }
+            if (!ctrl && !shift && !alt && press.Key is VirtualKey.Back or VirtualKey.Delete)
+            {
+                Shortcuts.Clear(command.Id);
+                Stop();
+                return;
+            }
+            // Сам Ctrl, Shift или Alt: сочетание ещё набирают.
+            if (Combo.FromCode((int)press.Key, ctrl, shift, alt) is not { } combo) return;
+            if (Shortcuts.Refusal(combo) is { } why)
+            {
+                Say(why);
+                return;
+            }
+            if (Shortcuts.Owner(combo, command.Id) is not null && taking != combo)
+            {
+                taking = combo;
+                Paint();
+                return;
+            }
+            Shortcuts.Assign(combo, command.Id);
+            Stop();
+        };
+        // Пробел нажимает кнопку, когда его отпускают: пока слушаем, это не нажатие.
+        box.PreviewKeyUp += (_, press) => { if (listening) press.Handled = true; };
+        box.PointerEntered += (_, _) =>
+        {
+            hovering = true;
+            Paint();
+        };
+        box.PointerExited += (_, _) =>
+        {
+            hovering = false;
+            Paint();
+        };
+
+        var menu = new MenuFlyout();
+        var clear = new MenuFlyoutItem { Text = "Clear Shortcut" };
+        clear.Click += (_, _) => Shortcuts.Clear(command.Id);
+        var reset = new MenuFlyoutItem { Text = "Reset to Default" };
+        reset.Click += (_, _) => Shortcuts.Reset(command.Id);
+        menu.Items.Add(clear);
+        menu.Items.Add(reset);
+        menu.Opening += (_, _) =>
+        {
+            clear.IsEnabled = Shortcuts.Key(command.Id) is not null;
+            reset.IsEnabled = Shortcuts.IsChanged(command.Id);
+        };
+        box.ContextFlyout = menu;
+
+        follow.Add(Paint);
+        return box;
+    }
+
+    static bool Down(VirtualKey key) => InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(CoreVirtualKeyStates.Down);
+
+    /// Строка без значка: название, под ним мелко пояснение, справа элемент.
+    /// Line апстрима. Первой идёт черта, как у Row.
+    static StackPanel Line(string title, string? detail, FrameworkElement control)
+    {
+        var grid = new Grid { Padding = new Thickness(14, 8, 14, 8), ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var words = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        words.Children.Add(new TextBlock { Text = title, FontSize = 13, Foreground = Palette.Ink, TextWrapping = TextWrapping.Wrap });
+        if (detail is not null) words.Children.Add(new TextBlock { Text = detail, FontSize = 11.5, Foreground = Palette.Muted });
+        grid.Children.Add(words);
+        control.VerticalAlignment = VerticalAlignment.Center;
+        SetColumn(control, 1);
+        grid.Children.Add(control);
+
+        var row = new StackPanel();
+        row.Children.Add(new Border { Height = 1, Background = Palette.Hairline });
+        row.Children.Add(grid);
+        return row;
+    }
+
+    /// Переключатель (Ui.Switch), который держится за настройку.
     /// tracked: false — состояние не из Settings (расширение): читается один раз.
     ToggleButton Switch(string name, Func<bool> read, Action<bool> write, bool tracked = true)
     {
-        var knob = new Ellipse { Width = 14, Height = 14, Fill = Palette.Ground, Margin = new Thickness(2) };
-        var track = new Border { Width = 30, Height = 18, CornerRadius = new CornerRadius(9), Child = knob };
-        var toggle = Ui.Bare(new ToggleButton { CornerRadius = new CornerRadius(9) }, name, track);
-        void Paint()
-        {
-            var on = toggle.IsChecked == true;
-            track.Background = on ? Palette.Ink : Palette.Faint;
-            knob.HorizontalAlignment = on ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-        }
-        void Flipped()
-        {
-            Paint();
-            if (!following) write(toggle.IsChecked == true);
-        }
-        // По смене состояния, а не по нажатию: экранный диктор переключает,
-        // не нажимая.
-        toggle.Checked += (_, _) => Flipped();
-        toggle.Unchecked += (_, _) => Flipped();
-        void Read()
-        {
-            toggle.IsChecked = read();
-            Paint();
-        }
+        var toggle = Ui.Switch(name, on => { if (!following) write(on); });
+        void Read() => toggle.IsChecked = read();
         if (tracked) follow.Add(Read);
         else
         {
@@ -202,38 +404,12 @@ sealed class SettingsPage : Grid
         return toggle;
     }
 
-    /// Несколько вариантов в серой дорожке, выбранный приподнят белым.
-    /// Segmented из апстрима.
+    /// Выбор из вариантов (Ui.Segmented), который держится за настройку.
     Border Choice(string name, (string Value, string Title)[] options, Func<string> read, Action<string> write)
     {
-        var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        foreach (var (value, title) in options)
-        {
-            // Буквы посередине, как в капсуле (Ui.Pill).
-            var text = new TextBlock { Text = title, FontSize = 11.5, TextLineBounds = TextLineBounds.Tight, VerticalAlignment = VerticalAlignment.Center };
-            var lift = new Border { Height = 26, CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 0, 10, 2), Child = text };
-            var option = Ui.Bare(new RadioButton { GroupName = name, CornerRadius = new CornerRadius(7) }, $"{name}: {title}", lift);
-            void Paint()
-            {
-                var on = option.IsChecked == true;
-                lift.Background = on ? Palette.Ground : Palette.Clear;
-                text.Foreground = on ? Palette.Ink : Palette.Muted;
-                text.FontWeight = on ? FontWeights.Medium : FontWeights.Normal;
-            }
-            option.Checked += (_, _) =>
-            {
-                Paint();
-                if (!following) write(value);
-            };
-            option.Unchecked += (_, _) => Paint();
-            follow.Add(() =>
-            {
-                option.IsChecked = read() == value;
-                Paint();
-            });
-            line.Children.Add(option);
-        }
-        return new Border { CornerRadius = new CornerRadius(9), Background = Palette.Wash, Padding = new Thickness(2), Child = line };
+        var (view, show) = Ui.Segmented(name, options, value => { if (!following) write(value); });
+        follow.Add(() => show(read()));
+        return view;
     }
 
     /// Поисковик: капсула с его именем, по нажатию — список.
@@ -322,7 +498,7 @@ sealed class SettingsPage : Grid
         follow.Add(() =>
         {
             sites.Children.Clear();
-            foreach (var site in Shield.Paused) sites.Children.Add(Site(site));
+            foreach (var site in Shield.Paused) sites.Children.Add(Site(site, null, $"Remove {site}", () => Shield.Pause(site, false)));
             sites.Visibility = sites.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             row.Visibility = Shield.Enabled ? Visibility.Visible : Visibility.Collapsed;
         });
@@ -335,23 +511,8 @@ sealed class SettingsPage : Grid
     StackPanel[] ExtensionRows(Tabs tabs)
     {
         var list = new StackPanel();
-        var trouble = new TextBlock { FontSize = 11.5, Foreground = Palette.Danger, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
-
-        // Любое дело к движку: ошибку показываем под строкой, а не роняем окно.
-        async Task Ask(Func<CoreWebView2Profile, Task> act)
-        {
-            try
-            {
-                await tabs.WithProfile(act);
-                trouble.Visibility = Visibility.Collapsed;
-            }
-            catch (Exception e) when (e is COMException or InvalidDataException or IOException or UnauthorizedAccessException
-                or ArgumentException or HttpRequestException or TaskCanceledException)
-            {
-                trouble.Text = $"Couldn't do that: {e.Message}";
-                trouble.Visibility = Visibility.Visible;
-            }
-        }
+        var trouble = Trouble();
+        Task Ask(Func<CoreWebView2Profile, Task> act) => Attempt(tabs, trouble, core => act(core.Profile));
 
         async void Refresh()
         {
@@ -441,25 +602,208 @@ sealed class SettingsPage : Grid
         return [store, load, list];
     }
 
-    /// Строка списка сайтов: имя и крестик, который возвращает сайт под блокировщик.
-    static Grid Site(string site)
+    /// Пароли и формы запоминает сам движок. Ключи апстрима: passwords.save и
+    /// contacts.fill. ponytail: списка сохранённого у движка нет — ни API, ни
+    /// своей страницы, — поэтому только «забыть всё»; свой список, когда
+    /// движок его отдаст.
+    StackPanel[] FormRows(Tabs tabs)
     {
-        var line = new Grid { Height = 24 };
-        line.Children.Add(new TextBlock
+        var trouble = Trouble();
+        var word = Word("Forget All");
+        var sure = false;
+        async void Forget()
         {
-            Text = site, FontSize = 12.5, Foreground = Palette.Ink, VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 28, 0),
-        });
+            // Пароли не вернуть: первое нажатие только переспрашивает.
+            if (!sure)
+            {
+                sure = true;
+                word.Text = "Click again to forget";
+                await Task.Delay(4000);
+                sure = false;
+                word.Text = "Forget All";
+                return;
+            }
+            sure = false;
+            word.Text = "Forget All";
+            await Attempt(tabs, trouble, core => core.Profile.ClearBrowsingDataAsync(
+                CoreWebView2BrowsingDataKinds.PasswordAutosave | CoreWebView2BrowsingDataKinds.GeneralAutofill).AsTask());
+        }
+        return [
+            Row(Ui.KeyRound, "Offer to save passwords", "Kept by the engine for this Windows account, filled in next time",
+                Switch("Offer to save passwords", () => Settings.Bool("passwords.save", true), on => Settings.Set("passwords.save", on))),
+            Row(Ui.TextCursorInput, "Fill in forms", "Names, addresses, email and phone you typed before, offered under their box",
+                Switch("Fill in forms", () => Settings.Bool("contacts.fill", true), on => Settings.Set("contacts.fill", on))),
+            Row(Ui.Trash, "Saved passwords and form entries", "Not listed here: forgetting is for every site at once",
+                Pill("Forget saved passwords and form entries", word, Forget), trouble),
+        ];
+    }
+
+    /// Разрешения сайтов и их куки с данными — списками по сайтам (просьба
+    /// владельца 2026-11-20: свои разделы вместо голых страниц движка). В
+    /// апстриме: privacy.forget (разрешения) и clear (куки — только все сразу).
+    (StackPanel Permissions, StackPanel Data) SiteRows(Tabs tabs)
+    {
+        // Списки из движка — сразу простыми значениями: невидимый движок, у
+        // которого их спросили, к показу уже закрыт.
+        List<(CoreWebView2PermissionKind Kind, string Origin, CoreWebView2PermissionState State)> saved = [];
+        List<(string Site, int Count)> sites = [];
+
+        var allowed = new StackPanel { Spacing = 4 };
+        var permissionTrouble = Trouble();
+        var forget = Pill("Forget all site permissions", Word("Forget All"));
+        var under = new StackPanel { Spacing = 8 };
+        under.Children.Add(allowed);
+        under.Children.Add(permissionTrouble);
+        var permissions = Row(Ui.ShieldCheck, "Camera, microphone, location and notifications", "What each site was allowed or refused", forget, under);
+
+        var (frame, box) = Entry("Find a site", "Find a site", Ui.Find);
+        var kept = new StackPanel { Spacing = 4 };
+        var dataTrouble = Trouble();
+        var below = new StackPanel { Spacing = 8 };
+        below.Children.Add(frame);
+        below.Children.Add(kept);
+        below.Children.Add(dataTrouble);
+        var data = Row(Ui.Cookie, "Cookies and site data", "Clearing a site signs you out of it and wipes what it stored",
+            Pill("Sign out of everything", Word("Clear All"), ClearAll), below);
+
+        async void Read()
+        {
+            await Attempt(tabs, dataTrouble, async core =>
+            {
+                saved = [.. (await core.Profile.GetNonDefaultPermissionSettingsAsync())
+                    .Select(setting => (setting.PermissionKind, setting.PermissionOrigin, setting.PermissionState))];
+                sites = [.. (await core.CookieManager.GetCookiesAsync("")).GroupBy(cookie => Address.Site(cookie.Domain))
+                    .Select(site => (site.Key, site.Count())).OrderBy(site => site.Key, StringComparer.Ordinal)];
+            });
+            ShowPermissions();
+            ShowData();
+        }
+
+        void ShowPermissions()
+        {
+            allowed.Children.Clear();
+            foreach (var origin in saved.GroupBy(setting => setting.Origin).OrderBy(origin => Shown(origin.Key), StringComparer.Ordinal))
+            {
+                var site = Shown(origin.Key);
+                var choices = string.Join(" · ", origin.Select(setting => $"{Kind(setting.Kind)}: {(setting.State == CoreWebView2PermissionState.Allow ? "Allow" : "Refuse")}"));
+                allowed.Children.Add(Site(site, choices, $"Forget choices for {site}", () => Forget([.. origin])));
+            }
+            if (saved.Count == 0) allowed.Children.Add(Quiet("No site has been allowed or refused anything yet"));
+            forget.Visibility = saved.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        async void Forget((CoreWebView2PermissionKind Kind, string Origin, CoreWebView2PermissionState State)[] settings)
+        {
+            await Attempt(tabs, permissionTrouble, async core =>
+            {
+                foreach (var setting in settings)
+                    await core.Profile.SetPermissionStateAsync(setting.Kind, setting.Origin, CoreWebView2PermissionState.Default);
+            });
+            Read();
+        }
+        forget.Click += (_, _) => Forget([.. saved]);
+
+        void ShowData()
+        {
+            kept.Children.Clear();
+            var words = box.Text.Trim();
+            var found = sites.Where(site => site.Site.Contains(words, StringComparison.OrdinalIgnoreCase)).ToList();
+            // ponytail: первые 30, дальше — уточнить поиском; мешает — список
+            // с прокруткой (ItemsRepeater, как в истории).
+            foreach (var (site, count) in found.Take(30))
+                kept.Children.Add(Site(site, count == 1 ? "1 cookie" : $"{count} cookies", $"Clear data of {site}", () => Wipe(site)));
+            if (found.Count > 30) kept.Children.Add(Quiet($"And {found.Count - 30} more. Type to narrow"));
+            if (sites.Count == 0) kept.Children.Add(Quiet("No site keeps cookies"));
+            else if (found.Count == 0) kept.Children.Add(Quiet("No site called that"));
+            frame.Visibility = sites.Count > 8 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        box.TextChanged += (_, _) => ShowData();
+
+        // Куки сайта и хранилища его источников: localStorage, IndexedDB, кэш,
+        // service worker. У WebView2 стирание только всего профиля — берём
+        // отладочный протокол, как карточка сайта.
+        async void Wipe(string site)
+        {
+            await Attempt(tabs, dataTrouble, async core =>
+            {
+                var jar = core.CookieManager;
+                var mine = (await jar.GetCookiesAsync("")).Where(cookie => Address.Site(cookie.Domain) == site).ToList();
+                var hosts = mine.Select(cookie => cookie.Domain).ToList();
+                foreach (var cookie in mine) jar.DeleteCookie(cookie);
+                foreach (var origin in Address.Origins(site, hosts, tabs.History.Everything().Select(trace => trace.Url)))
+                    await core.CallDevToolsProtocolMethodAsync("Storage.clearDataForOrigin", JsonSerializer.Serialize(new { origin, storageTypes = "all" }));
+            });
+            Read();
+        }
+
+        async void ClearAll()
+        {
+            await Attempt(tabs, dataTrouble, core => core.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.AllSite).AsTask());
+            Read();
+        }
+
+        Loaded += (_, _) => Read();
+        return (permissions, data);
+    }
+
+    /// Разрешение, как его называет карточка сайта (SiteCard), и остальные,
+    /// которые движок тоже помнит.
+    static string Kind(CoreWebView2PermissionKind kind) => kind switch
+    {
+        CoreWebView2PermissionKind.Geolocation => "Location",
+        CoreWebView2PermissionKind.OtherSensors => "Motion sensors",
+        CoreWebView2PermissionKind.ClipboardRead => "Clipboard",
+        CoreWebView2PermissionKind.MultipleAutomaticDownloads => "Several downloads",
+        CoreWebView2PermissionKind.FileReadWrite => "Files",
+        CoreWebView2PermissionKind.LocalFonts => "Fonts",
+        CoreWebView2PermissionKind.MidiSystemExclusiveMessages => "MIDI",
+        CoreWebView2PermissionKind.WindowManagement => "Window placement",
+        _ => kind.ToString(),
+    };
+
+    /// Источник, как его читает человек: хост без www, порт — если не обычный.
+    static string Shown(string origin) =>
+        Uri.TryCreate(origin, UriKind.Absolute, out var url) ? Address.WithoutWWW(url.Host) + (url.IsDefaultPort ? "" : $":{url.Port}") : origin;
+
+    static TextBlock Quiet(string text) => new() { Text = text, FontSize = 12, Foreground = Palette.Muted, TextWrapping = TextWrapping.Wrap };
+
+    static TextBlock Trouble() => new() { FontSize = 11.5, Foreground = Palette.Danger, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+
+    /// Любое дело к движку: ошибку показываем строкой trouble, а не роняем окно.
+    static async Task Attempt(Tabs tabs, TextBlock trouble, Func<CoreWebView2, Task> act)
+    {
+        try
+        {
+            await tabs.WithEngine(act);
+            trouble.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception e) when (e is COMException or InvalidDataException or IOException or UnauthorizedAccessException
+            or ArgumentException or HttpRequestException or TaskCanceledException)
+        {
+            trouble.Text = $"Couldn't do that: {e.Message}";
+            trouble.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// Строка списка сайтов: имя, под ним мелко — что о нём помнят, крестик справа.
+    static Grid Site(string site, string? detail, string name, Action remove)
+    {
+        var line = new Grid { MinHeight = 24 };
+        var words = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 28, 0) };
+        words.Children.Add(new TextBlock { Text = site, FontSize = 12.5, Foreground = Palette.Ink, TextTrimming = TextTrimming.CharacterEllipsis });
+        if (detail is not null)
+            words.Children.Add(new TextBlock { Text = detail, FontSize = 11, Foreground = Palette.Muted, TextTrimming = TextTrimming.CharacterEllipsis });
+        line.Children.Add(words);
         var disc = new Border
         {
             Width = 15, Height = 15, CornerRadius = new CornerRadius(7.5), Background = Palette.InkDisc,
             Child = Ui.Glyph(Ui.Cross, 12, Palette.Muted, 2.5),
         };
         // Нажимается квадрат побольше кружка.
-        var remove = Ui.Bare(new Button { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right },
-            $"Remove {site}", new Border { Width = 24, Height = 24, Background = Palette.Clear, Child = disc });
-        remove.Click += (_, _) => Shield.Pause(site, false);
-        line.Children.Add(remove);
+        var cross = Ui.Bare(new Button { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Right },
+            name, new Border { Width = 24, Height = 24, Background = Palette.Clear, Child = disc });
+        cross.Click += (_, _) => remove();
+        line.Children.Add(cross);
         return line;
     }
 }

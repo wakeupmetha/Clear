@@ -14,6 +14,17 @@ static class CrxTests
         const string some = "bcjindcccaagfpapjjmafapmmgkkhgoa";
         Check.Expect(Crx.Id(some) == some, "голый id");
         Check.Expect(Crx.Id($"https://chromewebstore.google.com/detail/json-formatter/{some}?hl=en") == some, "id из ссылки магазина");
+        Check.Expect(Crx.StoreId(new Uri($"https://chromewebstore.google.com/detail/json-formatter/{some}?hl=en")) == some
+            && Crx.StoreId(new Uri($"https://chromewebstore.google.com/detail/{some}/reviews")) == some
+            && Crx.StoreId(new Uri($"https://chrome.google.com/webstore/detail/x/{some}")) == some,
+            "страница расширения в магазине: id из пути /detail/, и в старом магазине");
+        Check.Expect(Crx.StoreId(new Uri($"http://chromewebstore.google.com/detail/{some}")) is null
+            && Crx.StoreId(new Uri($"https://user@chromewebstore.google.com/detail/{some}")) is null
+            && Crx.StoreId(new Uri($"https://chromewebstore.google.com.evil.example/detail/{some}")) is null
+            && Crx.StoreId(new Uri($"https://chromewebstore.google.com/search/{some}")) is null
+            && Crx.StoreId(new Uri($"https://chromewebstore.google.com/category/extensions?id={some}")) is null
+            && Crx.StoreId(null) is null,
+            "не магазин, не https, имя перед хостом, id не в /detail/ — не страница расширения");
         Check.Expect(Crx.Id($"https://chrome.google.com/webstore/detail/{some.ToUpperInvariant()}") == some, "id из старой ссылки, буквы любого регистра");
         Check.Expect(Crx.Id("https://chromewebstore.google.com/") is null && Crx.Id(some + "a") is null && Crx.Id(some[..31]) is null,
             "не id: адрес без id, 33 буквы подряд, 31 буква");

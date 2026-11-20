@@ -29,6 +29,27 @@ public static partial class Crx
     public static string? Id(string text) =>
         IdPattern().Match(text.ToLowerInvariant()) is { Success: true } found ? found.Groups[1].Value : null;
 
+    [GeneratedRegex("^/detail/(?:[^/]+/)?([a-p]{32})(?:/.*)?$")]
+    private static partial Regex StorePath();
+
+    [GeneratedRegex("^/webstore/detail/(?:[^/]+/)?([a-p]{32})(?:/.*)?$")]
+    private static partial Regex OldStorePath();
+
+    /// Расширение, о котором страница магазина: id из её пути /detail/ и только
+    /// оттуда — показанное там расширение и есть оно. Только на самом магазине,
+    /// по https и без имени перед хостом (storeID апстрима).
+    public static string? StoreId(Uri? url)
+    {
+        if (url is not { Scheme: "https", UserInfo: "" }) return null;
+        var found = url.Host switch
+        {
+            "chromewebstore.google.com" => StorePath().Match(url.AbsolutePath),
+            "chrome.google.com" => OldStorePath().Match(url.AbsolutePath),
+            _ => null,
+        };
+        return found is { Success: true } ? found.Groups[1].Value : null;
+    }
+
     /// Адрес, по которому магазин отдаёт .crx. chrome — версия, которой
     /// представляемся: расширения с минимальной версией магазин старому
     /// браузеру не отдаёт.

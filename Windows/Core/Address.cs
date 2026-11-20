@@ -139,6 +139,31 @@ public static class Address
     public static string WithoutWWW(string address) =>
         address.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? address[4..] : address;
 
+    /// Сайт, к которому относится хост: две последние части имени, а у имён
+    /// вида bbc.co.uk — три. Так куки accounts.google.com и .google.com
+    /// встают в одну строку списка сайтов.
+    // ponytail: короткий список вторых уровней вместо Public Suffix List; на
+    // редких суффиксах (github.io, blogspot.com) все их сайты сольются в один.
+    // Мешает — взять список суффиксов.
+    public static string Site(string host)
+    {
+        var name = host.Trim('.').ToLowerInvariant();
+        if (System.Net.IPAddress.TryParse(name, out _)) return name;
+        var parts = name.Split('.');
+        var take = parts.Length > 2 && parts[^1].Length == 2
+            && parts[^2] is "co" or "com" or "org" or "net" or "gov" or "edu" or "ac" or "or" or "ne" or "go" ? 3 : 2;
+        return parts.Length <= take ? name : string.Join('.', parts[^take..]);
+    }
+
+    /// Источники сайта, чьи хранилища стирать: хосты его куки, сам сайт и www —
+    /// по https и http, и источники из истории: только там известен порт.
+    public static IEnumerable<string> Origins(string site, IEnumerable<string> cookieHosts, IEnumerable<Uri> visited) =>
+        cookieHosts.Select(host => host.Trim('.').ToLowerInvariant()).Append(site).Append("www." + site)
+            .Where(host => Site(host) == site)
+            .SelectMany(host => (string[])[$"https://{host}", $"http://{host}"])
+            .Concat(visited.Where(url => url.Scheme is "http" or "https" && Site(url.Host) == site).Select(url => url.GetLeftPart(UriPartial.Authority)))
+            .Distinct();
+
     /// Что написано на вкладке, пока страница не сообщила заголовок.
     public static string Pretty(Uri url)
     {

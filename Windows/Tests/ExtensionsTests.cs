@@ -24,6 +24,22 @@ static class ExtensionsTests
         Directory.CreateDirectory(bare);
         File.WriteAllText(Path.Combine(bare, "manifest.json"), """{ "name": "Bare", "version": "2", "options_ui": "page.html" }""");
         Check.Expect(Extensions.Manifest(bare) == ("Bare", "2", null), "options_ui не того вида не роняет чтение");
+        Check.Expect(Extensions.Button(bare, 16) is null, "без action — без кнопки");
+        File.WriteAllText(Path.Combine(bare, "manifest.json"), """
+            { "name": "Bare", "version": "2", "icons": { "48": "i48.png", "128": "i128.png" },
+              "action": { "default_popup": "pop.html", "default_title": "Do it", "default_icon": { "16": "a16.png", "32": "a32.png", "x": "bad.png" } } }
+            """);
+        Check.Expect(Extensions.Button(bare, 16) == new Knob("pop.html", "Do it", "a16.png"), "action: окно, подпись, значок ровно своего размера");
+        Check.Expect(Extensions.Button(bare, 20)?.Icon == "a32.png", "значок — наименьший не меньше нужного");
+        Check.Expect(Extensions.Button(bare, 64)?.Icon == "a32.png", "все меньше нужного — самый крупный");
+        File.WriteAllText(Path.Combine(bare, "manifest.json"), """
+            { "name": "Bare", "version": "2", "icons": { "48": "i48.png", "128": "i128.png" }, "browser_action": { "default_icon": "one.png" } }
+            """);
+        Check.Expect(Extensions.Button(bare, 16) == new Knob(null, null, "one.png"), "browser_action (MV2), значок строкой, окна нет");
+        File.WriteAllText(Path.Combine(bare, "manifest.json"), """
+            { "name": "Bare", "version": "2", "icons": { "48": "i48.png", "128": "i128.png" }, "action": {} }
+            """);
+        Check.Expect(Extensions.Button(bare, 16)?.Icon == "i48.png", "без default_icon — значок из icons");
         File.WriteAllText(Path.Combine(bare, "manifest.json"), """{ "name": "Bare" }""");
         Check.Expect(Extensions.Manifest(bare) is null, "без версии — не расширение");
 

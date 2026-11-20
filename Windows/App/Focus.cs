@@ -40,6 +40,7 @@ sealed partial class MainWindow
         Canvas.SetZIndex(cover, 2);
         Canvas.SetZIndex(doors, 3);
         Canvas.SetZIndex(bar.View, 3);
+        Canvas.SetZIndex(actions.View, 3);
         Canvas.SetZIndex(crest, 4);
         root.Children.Add(cover);
         root.Children.Add(crest);
@@ -99,14 +100,14 @@ sealed partial class MainWindow
             Grid.SetRow(part, focused ? 0 : 1);
             Grid.SetRowSpan(part, focused ? 2 : 1);
         }
-        doors.Visibility = bar.View.Visibility = band.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+        doors.Visibility = bar.View.Visibility = actions.View.Visibility = band.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
         cover.Visibility = focused && crowned ? Visibility.Visible : Visibility.Collapsed;
         crest.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
         // Спрятанная полоса не должна таскать окно за верх страницы, а кнопки
         // окна — висеть над ней. Свёрнутая полоса своё место у перетаскивания
         // сама не отдаёт (проверено: остаётся 40 точек), снимаем его; вернувшейся
         // его отдаёт Passthrough на следующей раскладке.
-        AppWindow.TitleBar.PreferredHeightOption = hidden ? TitleBarHeightOption.Collapsed : TitleBarHeightOption.Standard;
+        AppWindow.TitleBar.PreferredHeightOption = hidden ? TitleBarHeightOption.Collapsed : TitleBarHeightOption.Tall;
         if (hidden) InputNonClientPointerSource.GetForWindowId(AppWindow.Id).ClearRegionRects(NonClientRegionKind.Caption);
         holes = [];
         Arrange();

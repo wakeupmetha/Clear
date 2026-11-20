@@ -20,6 +20,8 @@ try
     await StoreTests.BenchAnswers();
     HistoryTests.Run();
     await IconsTests.Run();
+    ShortcutsTests.Run();
+    WindowFrameTests.Run();
     PageKeysTests.Run();
     ExtensionsTests.Run();
     CrxTests.Run();

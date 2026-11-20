@@ -31,6 +31,8 @@ sealed class Tab
     public string Heading = "";
     /// Скрипт блокировщика, поставленный на движок этой вкладки.
     public string? ShieldScript;
+    /// Скрипт сочетаний (PageKeys), поставленный на движок этой вкладки.
+    public string? KeyScript;
 
     /// Что-то изменилось в самой вкладке: заголовок, адрес, загрузка.
     public event Action? Changed;
@@ -79,7 +81,7 @@ sealed class Tabs(Panel stage)
     /// второй движок на той же папке с другими настройками не запустится.
     /// Папку данных и ключи движка задают переменные окружения (App).
     static Task<Microsoft.Web.WebView2.Core.CoreWebView2Environment>? shared;
-    static Task<Microsoft.Web.WebView2.Core.CoreWebView2Environment> Shared() =>
+    public static Task<Microsoft.Web.WebView2.Core.CoreWebView2Environment> Shared() =>
         shared ??= Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateWithOptionsAsync(null, null,
             new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions { AreBrowserExtensionsEnabled = true }).AsTask();
 
@@ -286,18 +288,37 @@ sealed class Tabs(Panel stage)
     public void Look(bool dark)
     {
         this.dark = dark;
-        foreach (var tab in All)
-            if (tab.View is { } view) Dress(view);
+        Redress();
     }
 
     void Dress(WebView2 view)
     {
         // Фон движка — фон карточки: без белой вспышки в тёмной теме.
         view.DefaultBackgroundColor = Palette.Ground.Color;
-        if (view.CoreWebView2 is { } core)
-            core.Profile.PreferredColorScheme = dark
-                ? Microsoft.Web.WebView2.Core.CoreWebView2PreferredColorScheme.Dark
-                : Microsoft.Web.WebView2.Core.CoreWebView2PreferredColorScheme.Light;
+        if (view.CoreWebView2 is not { } core) return;
+        var profile = core.Profile;
+        profile.PreferredColorScheme = dark
+            ? Microsoft.Web.WebView2.Core.CoreWebView2PreferredColorScheme.Dark
+            : Microsoft.Web.WebView2.Core.CoreWebView2PreferredColorScheme.Light;
+        // Настройки движка через его API, а не флагами (решение владельца
+        // 2026-11-21). Ключи апстрима: sites.keep — «Prevent cross-site
+        // tracking», выключенный; включённый — уровень движка по умолчанию.
+        profile.PreferredTrackingPreventionLevel = Settings.Bool("sites.keep")
+            ? Microsoft.Web.WebView2.Core.CoreWebView2TrackingPreventionLevel.None
+            : Microsoft.Web.WebView2.Core.CoreWebView2TrackingPreventionLevel.Balanced;
+        // passwords.save включён по умолчанию, как в апстриме (у движка — нет).
+        profile.IsPasswordAutosaveEnabled = Settings.Bool("passwords.save", true);
+        // contacts.fill в апстриме выключен, потому что macOS спрашивает про
+        // Контакты; здесь спрашивать некого, и движок по умолчанию заполняет.
+        profile.IsGeneralAutofillEnabled = Settings.Bool("contacts.fill", true);
+    }
+
+    /// Настройку движка сменили: применить ко всем живым движкам. Профиль у
+    /// них один, но спящие вкладки получат её сами при пробуждении.
+    public void Redress()
+    {
+        foreach (var tab in All)
+            if (tab.View is { } view) Dress(view);
     }
 
     /// now — при выходе: сессия, отданная фоновой очереди, может не дойти до диска.
@@ -453,7 +474,7 @@ sealed class Tabs(Panel stage)
         core.WindowCloseRequested += (_, _) => { if (tab.View == view) Close(tab); };
         core.WebMessageReceived += (_, said) => Heard(said);
         core.FrameCreated += (_, made) => made.Frame.WebMessageReceived += (_, said) => Heard(said);
-        await core.AddScriptToExecuteOnDocumentCreatedAsync(PageKeys.Script(KeyToken));
+        await Rekey(tab, core);
         if (tab.View != view) return;
         await (ublock ??= UBlock.Ensure(core.Profile));
         if (tab.View != view) return;
@@ -466,6 +487,23 @@ sealed class Tabs(Panel stage)
         if (tab == Live && (view.XamlRoot is null
             || FocusManager.GetFocusedElement(view.XamlRoot) is not Control { FocusState: FocusState.Keyboard }))
             view.Focus(FocusState.Programmatic);
+    }
+
+    /// Сочетания поменяли: скрипт сочетаний ставится заново на все движки.
+    // ponytail: открытая страница узнаёт новые сочетания со следующей загрузки,
+    // а до неё ловит прежние (окно их уже не примет). Мешает — слать список в
+    // страницу сообщением.
+    public void Rekey()
+    {
+        foreach (var tab in All)
+            if (tab.View?.CoreWebView2 is { } core) _ = Rekey(tab, core);
+    }
+
+    static async Task Rekey(Tab tab, Microsoft.Web.WebView2.Core.CoreWebView2 core)
+    {
+        if (tab.KeyScript is { } old) core.RemoveScriptToExecuteOnDocumentCreated(old);
+        tab.KeyScript = null;
+        tab.KeyScript = await core.AddScriptToExecuteOnDocumentCreatedAsync(PageKeys.Script(KeyToken));
     }
 
     /// Блокировщик включили, выключили или сменили сайты, где он выключен:
@@ -494,9 +532,14 @@ sealed class Tabs(Panel stage)
     /// поэтому годится любой живой движок. Если ни одна вкладка не проснулась
     /// (открыты только настройки), на время дела поднимаем невидимый движок и
     /// сразу его закрываем.
-    public async Task WithProfile(Func<Microsoft.Web.WebView2.Core.CoreWebView2Profile, Task> act)
+    public Task WithProfile(Func<Microsoft.Web.WebView2.Core.CoreWebView2Profile, Task> act) => WithEngine(core => act(core.Profile));
+
+    /// То же с самим движком: отладочный протокол (стереть хранилища одного
+    /// сайта) есть только у него. Хранилища у профиля общие, поэтому сайт
+    /// может быть и не тот, что открыт в этом движке.
+    public async Task WithEngine(Func<Microsoft.Web.WebView2.Core.CoreWebView2, Task> act)
     {
-        if (Profile is { } live)
+        if (All.Select(tab => tab.View?.CoreWebView2).OfType<Microsoft.Web.WebView2.Core.CoreWebView2>().FirstOrDefault() is { } live)
         {
             await act(live);
             return;
@@ -506,7 +549,7 @@ sealed class Tabs(Panel stage)
         try
         {
             await view.EnsureCoreWebView2Async(await Shared());
-            if (view.CoreWebView2 is { } temp) await act(temp.Profile);
+            if (view.CoreWebView2 is { } temp) await act(temp);
         }
         finally
         {

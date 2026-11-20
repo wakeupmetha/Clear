@@ -17,6 +17,13 @@ static class Addons
     /// откуда бы это ни пришло (её кнопка, тест-канал).
     public static event Action? Changed;
 
+    /// Расширение включили или выключили, или движок проснулся и список стал
+    /// известен: меняются кнопки в полосе (Actions). Строки настроек об этом
+    /// не перечитываются — их переключатель и так знает.
+    public static event Action? Switched;
+
+    public static void Switch() => Switched?.Invoke();
+
     static readonly HttpClient Web = new() { Timeout = TimeSpan.FromSeconds(60) };
 
     /// Из распакованной папки человека.
@@ -31,7 +38,7 @@ static class Addons
     public static async Task<(string Id, string Name)> InstallFromStore(CoreWebView2Profile profile, string text)
     {
         var id = Crx.Id(text) ?? throw new InvalidDataException("That isn't a Chrome Web Store link or extension id");
-        var source = $"https://chromewebstore.google.com/detail/{id}";
+        var source = StorePage(id);
         if (Extensions.All().Any(record => record.Source == source)) throw new InvalidDataException("That extension is already added");
         // Представляемся той версией Chromium, что стоит на самом деле.
         var chrome = CoreWebView2Environment.GetAvailableBrowserVersionString().Split(' ')[0];
@@ -76,6 +83,7 @@ static class Addons
     public static async Task Enable(CoreWebView2Profile profile, string id, bool on)
     {
         if (await Find(profile, id) is { } found && found.IsEnabled != on) await found.EnableAsync(on);
+        Switch();
     }
 
     public static async Task Remove(CoreWebView2Profile profile, string id)
@@ -84,6 +92,9 @@ static class Addons
         Extensions.Forget(id);
         Changed?.Invoke();
     }
+
+    /// Откуда поставлено из магазина (Installed.Source): страница расширения.
+    public static string StorePage(string id) => $"https://chromewebstore.google.com/detail/{id}";
 
     public static Uri? Options(Installed record) =>
         record.Options is { } page ? new Uri($"chrome-extension://{record.Id}/{page.TrimStart('/')}") : null;

@@ -70,6 +70,7 @@ static class AddressTests
 
         Engines();
         Slips();
+        Sites();
     }
 
     static void Files()
@@ -115,5 +116,21 @@ static class AddressTests
         Check.Expect(!Fuzzy.Nearly(B("xithub"), B("github github.com")), "первая буква должна совпасть");
         Check.Expect(Fuzzy.StartsWord(B("api"), B("team/api")), "«api» начинает слово в «team/api»");
         Check.Expect(!Fuzzy.StartsWord(B("api"), B("rapid")), "но не в «rapid»");
+    }
+
+    static void Sites()
+    {
+        Check.Expect(Address.Site("accounts.google.com") == "google.com" && Address.Site(".Google.com") == "google.com",
+            "хост и домен куки с точкой — один сайт");
+        Check.Expect(Address.Site("news.bbc.co.uk") == "bbc.co.uk" && Address.Site("shop.example.com.au") == "example.com.au",
+            "у co.uk и com.au сайт — три части");
+        Check.Expect(Address.Site("mail.yandex.ru") == "yandex.ru" && Address.Site("example.com") == "example.com", "обычные имена — две части");
+        Check.Expect(Address.Site("127.0.0.1") == "127.0.0.1" && Address.Site("localhost") == "localhost" && Address.Site("co.uk") == "co.uk",
+            "адрес, одно слово и короткое имя остаются как есть");
+        var origins = Address.Origins("example.com", [".example.com", "login.example.com", "other.org"],
+            [new Uri("http://example.com:8080/a"), new Uri("https://other.org/"), new Uri("file:///C:/x")]).ToList();
+        Check.Expect(origins.Contains("https://login.example.com") && origins.Contains("http://example.com") && origins.Contains("https://www.example.com")
+            && origins.Contains("http://example.com:8080") && !origins.Any(origin => origin.Contains("other.org")) && origins.Distinct().Count() == origins.Count,
+            "источники сайта: хосты куки, сайт и www по двум схемам, источник с портом из истории, без чужих и повторов");
     }
 }

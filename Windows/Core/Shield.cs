@@ -45,6 +45,15 @@ public static class Shield
         Settings.Set("shield.paused", off ? others.Append(host).Order() : others);
     }
 
+    /// Выключен ли блокировщик на странице этого хоста: записью для него или
+    /// для сайта выше («example.com» выключает и «www.example.com»).
+    public static bool PausedOn(string host) => Paused.Any(site => Under(host, site));
+
+    /// Включить на этом хосте из карточки сайта: убрать и запись сайта выше —
+    /// иначе переключатель остался бы выключенным.
+    public static void Resume(string host) =>
+        Settings.Set("shield.paused", Paused.Where(site => !Under(host, site)));
+
     /// Всё из списка: домены («doubleclick.net») и адреса с путём
     /// («yandex.ru/ads/»). Движку, чтобы он отдавал на проверку только
     /// запросы к ним.
@@ -129,7 +138,7 @@ public static class Shield
     public static bool Blocks(Uri request, string? pageHost)
     {
         if (!Enabled || Delegated || request.Scheme is not ("http" or "https")) return false;
-        if (pageHost is not null && Paused.Any(site => Under(pageHost, site))) return false;
+        if (pageHost is not null && PausedOn(pageHost)) return false;
         var host = request.Host.AsSpan();
         if (pageHost is not null && Site(host).SequenceEqual(Site(pageHost))) return false;
 

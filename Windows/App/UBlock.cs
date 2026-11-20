@@ -16,6 +16,9 @@ static class UBlock
 
     static CoreWebView2BrowserExtension? installed;
 
+    /// Id у движка, когда он найден.
+    public static string? Id => installed?.Id;
+
     /// Адрес его панели (списки фильтров, доверенные сайты), когда он найден.
     public static Uri? Dashboard => installed is null ? null : new Uri($"chrome-extension://{installed.Id}/dashboard.html");
 
@@ -40,6 +43,8 @@ static class UBlock
         }
         Shield.Delegated = installed is not null;
         await Follow();
+        // Первый движок проснулся: теперь известно, у каких расширений кнопки.
+        Addons.Switch();
     }
 
     /// uBlock включён, когда включён блокировщик.
@@ -48,5 +53,6 @@ static class UBlock
         if (installed is null || installed.IsEnabled == Shield.Enabled) return;
         try { await installed.EnableAsync(Shield.Enabled); }
         catch (COMException) { }
+        Addons.Switch();
     }
 }

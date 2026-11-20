@@ -149,6 +149,14 @@ static class StoreTests
         Shield.Pause("a.example", false);
         Check.Expect(Shield.Paused.Length == 0 && Shield.Blocks(new Uri("https://doubleclick.net/x.js"), "news.example"), "сайт возвращается под блокировщик");
 
+        Shield.Pause("news.example", true);
+        Shield.Pause("a.example", true);
+        Check.Expect(Shield.PausedOn("www.news.example") && Shield.PausedOn("news.example") && !Shield.PausedOn("goodnews.example") && !Shield.PausedOn("example"),
+            "выключен ли блокировщик на сайте — по записи для него или для сайта выше");
+        Shield.Resume("www.news.example");
+        Check.Expect(Shield.Paused is ["a.example"], "включить на поддомене — убрать и запись сайта выше, остальные остаются");
+        Shield.Pause("a.example", false);
+
         Check.Expect(Shield.Named(" https://www.Habr.com/ru/feed/ ") == "habr.com" && Shield.Named("lenta.ru") == "lenta.ru", "сайт набирают именем или адресом целиком");
         Check.Expect(Shield.Named("two words") is null && Shield.Named("edge://flags") is null && Shield.Named("") is null, "не сайт в список не попадает");
 

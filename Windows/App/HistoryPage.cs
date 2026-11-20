@@ -31,7 +31,8 @@ sealed class HistoryPage : Grid
     readonly TextBlock none = new() { FontSize = 13, Foreground = Palette.Muted };
     readonly TextBlock count = new() { FontSize = 12, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center };
     readonly FrameworkElement sweeps;
-    readonly Button clear, back, deselect, drop;
+    readonly Button clear, done, deselect, drop;
+    readonly Grid line;
     List<History.Line> lines = [];
     // Выбранные места: ключи, а не строки — строка служит разным местам по
     // очереди (Maker). anchor — от него Shift+щелчок берёт диапазон.
@@ -91,32 +92,43 @@ sealed class HistoryPage : Grid
         {
             CornerRadius = new CornerRadius(11), BorderBrush = Palette.Hairline, BorderThickness = new Thickness(1),
             Padding = new Thickness(14, 18, 14, 18), Child = none,
-        }, 0, 0);
+        }, 0, 14);
         nothing.VerticalAlignment = VerticalAlignment.Top;
         SetRow(nothing, 1);
         body.Children.Add(nothing);
 
-        // Подвал — одна строка: слева что здесь (сколько мест, сколько выбрано,
-        // что очищается), справа что сделать. Карточка очистки встаёт над этой
-        // строкой, а «Back» — на место «Clear…», а не один под карточкой. Само
-        // удаление — второе нажатие, уже в карточке: его не вернуть, одного
-        // нажатия для него мало.
+        // Подвал — одна строка: слева что здесь (сколько мест, сколько выбрано),
+        // справа что сделать. «Clear…» открывает вместо неё карточку очистки со
+        // своим заголовком и «Done» (просьба владельца 2026-11-20: «Back» снизу не
+        // одинокий; кнопки в карточке одной ширины). Само удаление — второе
+        // нажатие, уже в карточке: его не вернуть, одного нажатия для него мало.
         clear = Pill("Choose what to clear", Word("Clear…"), () => Clearing(true));
-        back = Pill("Back", Word("Back"), () => Clearing(false));
+        done = Pill("Done", Word("Done"), () => Clearing(false));
         // После «Deselect» и «Remove» обе прячутся: фокус — на вернувшуюся «Clear…».
         deselect = Pill("Deselect", Word("Deselect"), () => { ChooseAll(false); clear.Focus(FocusState.Programmatic); });
         var removal = Word("Remove");
         removal.Foreground = Palette.Danger;
         drop = Pill("Remove selected", removal, () => { Forget(chosen, keyed: false); clear.Focus(FocusState.Programmatic); });
         var acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
-        foreach (var act in new[] { deselect, drop, clear, back }) acts.Children.Add(act);
-        var line = new Grid { Margin = new Thickness(0, 14, 0, 14) };
+        foreach (var act in new[] { deselect, drop, clear }) acts.Children.Add(act);
+        line = new Grid { Margin = new Thickness(0, 14, 0, 14) };
         line.Children.Add(count);
         line.Children.Add(acts);
 
-        // Одна карточка, три строки. После куки и кэша карточка не закрывается:
-        // их можно стереть одну за другой, не возвращаясь к «Clear…».
+        // Одна карточка: заголовок с «Done» и три строки с одинаковыми «Clear».
+        // После куки и кэша карточка не закрывается: их можно стереть одну за
+        // другой, не возвращаясь к «Clear…».
         var card = new StackPanel();
+        var heading = new Grid { Padding = new Thickness(14, 10, 14, 10) };
+        heading.Children.Add(new TextBlock
+        {
+            Text = "Clear browsing data", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Palette.Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        done.HorizontalAlignment = HorizontalAlignment.Right;
+        heading.Children.Add(done);
+        card.Children.Add(heading);
+        card.Children.Add(new Border { Height = 1, Background = Palette.Hairline });
         card.Children.Add(Sweep("History", "Everywhere you have been", Pill("Clear history", Word("Clear"), () =>
         {
             tabs.History.Forget();
@@ -126,14 +138,14 @@ sealed class HistoryPage : Grid
         })));
         card.Children.Add(new Border { Height = 1, Background = Palette.Hairline });
         card.Children.Add(Sweep("Cookies and sign-ins", "Signs you out of every site",
-            Pill("Sign out of everything", Word("Sign out of everything"), () => _ = tabs.Sweep(Microsoft.Web.WebView2.Core.CoreWebView2BrowsingDataKinds.AllSite))));
+            Pill("Sign out of everything", Word("Clear"), () => _ = tabs.Sweep(Microsoft.Web.WebView2.Core.CoreWebView2BrowsingDataKinds.AllSite))));
         card.Children.Add(new Border { Height = 1, Background = Palette.Hairline });
         card.Children.Add(Sweep("Cache", "Only what was fetched to draw pages",
             Pill("Clear cache", Word("Clear"), () => _ = tabs.Sweep(Microsoft.Web.WebView2.Core.CoreWebView2BrowsingDataKinds.DiskCache))));
         sweeps = new Border
         {
             CornerRadius = new CornerRadius(11), BorderBrush = Palette.Hairline, BorderThickness = new Thickness(1), Child = card,
-            Margin = new Thickness(0, 14, 0, 0),
+            Margin = new Thickness(0, 14, 0, 14),
         };
 
         var foot = new StackPanel();
@@ -191,11 +203,11 @@ sealed class HistoryPage : Grid
     {
         var picking = chosen.Count > 0 && !clearing;
         var pages = lines.Count(line => line.Page is not null);
-        count.Text = clearing ? "Choose what to clear"
-            : picking ? $"{chosen.Count} selected"
-            : pages == 1 ? "1 page" : $"{pages} pages";
-        sweeps.Visibility = back.Visibility = Seen(clearing);
-        clear.Visibility = Seen(!clearing && !picking);
+        // Пустой список уже говорит «Nothing yet.»: «0 pages» под ним — второй раз о том же.
+        count.Text = picking ? $"{chosen.Count} selected" : pages switch { 0 => "", 1 => "1 page", _ => $"{pages} pages" };
+        sweeps.Visibility = Seen(clearing);
+        line.Visibility = Seen(!clearing);
+        clear.Visibility = Seen(!picking);
         deselect.Visibility = drop.Visibility = Seen(picking);
     }
 
@@ -275,8 +287,8 @@ sealed class HistoryPage : Grid
         clearing = on;
         Foot();
         // Нажатая кнопка спряталась: фокус уходит на ту, что её сменила. К
-        // «Back», а не к «Clear»: второй Enter подряд не должен ничего стирать.
-        (on ? back : clear).Focus(FocusState.Programmatic);
+        // «Done», а не к «Clear»: второй Enter подряд не должен ничего стирать.
+        (on ? done : clear).Focus(FocusState.Programmatic);
     }
 
     /// Одна строка карточки очистки: что это слева, кнопка справа. Строки

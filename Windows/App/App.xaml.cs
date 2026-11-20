@@ -19,6 +19,10 @@ public partial class App : Application
 {
     MainWindow? window;
 
+    /// Закрыть окно как обычно — вкладки и история сохраняются — и тем выйти
+    /// (обновление изнутри: установщик ждёт выхода).
+    public static void Quit() => (Current as App)?.window?.Close();
+
     public App()
     {
         // Куки, входы и кэш движка лежат рядом с остальным, в папке хранилища:
@@ -48,6 +52,12 @@ public partial class App : Application
             window.AppWindow.Show(activateWindow: false);
             window.AppWindow.MoveInZOrderAtBottom();
         }
-        else window.Activate();
+        else
+        {
+            // Закрыли развёрнутым — развёрнутым и открывается. Тихому окну не
+            // разворачиваться: развёртывание делает окно активным.
+            if (Settings.Bool("window.zoomed") && window.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) presenter.Maximize();
+            window.Activate();
+        }
     }
 }

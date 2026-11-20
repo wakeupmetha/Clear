@@ -11,7 +11,7 @@
     <RootNamespace>Browser</RootNamespace>
     <Product>aerio</Product>
     <AssemblyTitle>aerio</AssemblyTitle>
-    <Version>0.1.4</Version>
+    <Version>0.1.10</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Значок делает Assets/icon.ps1 из логотипа Assets/logo.svg. -->
     <ApplicationIcon>Assets\aerio.ico</ApplicationIcon>
@@ -46,6 +46,15 @@
          None, а не Content: Content попадает в индекс ресурсов приложения (PRI),
          и тот предупреждает о файлах uBlock (PRI263). -->
     <None Include="Extensions\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Откуда собрана программа: обновление изнутри (Updater) пересобирает её
+         отсюда (решение владельца 2026-11-21: «Пересборка здесь»).
+         ponytail: путь к исходникам этого компьютера едет внутри пакета; для
+         выпуска наружу собирать с -p:SourceFolder=none (обновления тогда нет). -->
+    <AssemblyMetadata Include="Source" Value="$(SourceFolder)" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <SourceFolder Condition="'$(SourceFolder)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))</SourceFolder>
+  </PropertyGroup>
 
 </Project>
