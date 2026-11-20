@@ -1,0 +1,12 @@
+uBlock Origin 1.76.6 for Chromium, shipped unmodified with aerio as its ad blocker.
+
+Author:   Raymond Hill and contributors
+License:  GNU General Public License v3, see uBlock0.chromium\LICENSE.txt
+Source:   https://github.com/gorhill/uBlock/tree/1.76.6
+Release:  https://github.com/gorhill/uBlock/releases/tag/1.76.6
+File:     uBlock0_1.76.6.chromium.zip, 6188370 bytes
+SHA-256:  8831cad49eac3ac3d85d2c32d48a328c63e152ea890cdb2223c77f5b7c0e7837
+          (matches the digest GitHub lists for the release asset)
+
+The folder uBlock0.chromium is the archive's contents as published.
+Downloaded 2026-11-20 with the owner's permission.

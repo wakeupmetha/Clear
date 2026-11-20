@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Окно браузера: WinUI 3 и WebView2 поверх ядра. Вся логика, которой не нужен
+       интерфейс, живёт в ../Core и проверяется там. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <!-- Имя файла программы — имя бренда; пространство имён в коде осталось рабочим. -->
+    <AssemblyName>aerio</AssemblyName>
+    <RootNamespace>Browser</RootNamespace>
+    <Product>aerio</Product>
+    <AssemblyTitle>aerio</AssemblyTitle>
+    <Version>0.1.4</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Значок делает Assets/icon.ps1 из логотипа Assets/logo.svg. -->
+    <ApplicationIcon>Assets\aerio.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- Без пакета MSIX и без установленного рантайма Windows App SDK: его
+         библиотеки лежат рядом с программой, запуск — обычный exe. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Без этого dotnet publish не кладёт в итог aerio.pri и App.xbf, и
+         опубликованная программа падает при запуске (сборка в bin — работает). -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Точка входа своя (Program в App.xaml.cs): до окна надо дать слово установщику. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <!-- Установщик (решение владельца). Версия та же, что у инструмента vpk в ../dotnet-tools.json. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <ProjectReference Include="..\Core\Core.csproj" />
+    <!-- Тот же значок окну и панели задач: окно берёт его из файла рядом с программой. -->
+    <Content Include="Assets\aerio.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- uBlock Origin, распакованный, как опубликован (решение владельца: внутри установщика).
+         ponytail: 668 файлов, 26 МБ лежат в проекте; когда Windows/ попадёт в git —
+         держать архив и распаковывать при сборке.
+         None, а не Content: Content попадает в индекс ресурсов приложения (PRI),
+         и тот предупреждает о файлах uBlock (PRI263). -->
+    <None Include="Extensions\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
