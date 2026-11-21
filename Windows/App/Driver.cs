@@ -18,6 +18,9 @@ namespace Browser;
 // где в апстриме нет прямого соответствия.
 sealed partial class MainWindow
 {
+    /// Буфер обмена для Paste and Go в тест-канале: настоящий — человека.
+    string clip = "";
+
     /// Запрос пришёл в фоновом потоке; вкладки живут в потоке интерфейса.
     Task<JsonNode?> Answer(JsonElement request)
     {
@@ -67,7 +70,7 @@ sealed partial class MainWindow
         // фокуса) в список не входит, как и спрятанная колонка. В конце — открытые
         // окошки полосы (карточка сайта).
         IEnumerable<Control> Chrome() => (bar.View.Visibility == Visibility.Visible ? new Control[] { bar.Site, bar.Edit } : [])
-            .Concat(new DependencyObject[] { doors, panel, actions.View, offer.View }
+            .Concat(new DependencyObject[] { doors, panel, actions.View, offer.View, find.View }
                 .Concat(VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).Select(popup => popup.Child).OfType<DependencyObject>())
                 .Where(part => part is not UIElement { Visibility: Visibility.Collapsed })
                 .SelectMany(Within).OfType<Control>())
@@ -92,6 +95,7 @@ sealed partial class MainWindow
                 {
                     ["id"] = tab.Id.ToString(), ["url"] = tab.Url, ["title"] = tab.Title,
                     ["live"] = tab == tabs.Live, ["asleep"] = tab.View is null, ["loading"] = tab.Loading, ["pin"] = tab.Pin, ["private"] = tab.Private, ["failure"] = tab.Failure,
+                    ["noisy"] = tab.Noisy, ["muted"] = tab.Muted, ["engineMuted"] = tab.View?.CoreWebView2?.IsMuted,
                 }).ToArray());
             case "open":
                 return new JsonObject { ["id"] = tabs.Open(new Uri(Text("url")), select: !Flag("behind")).Id.ToString() };
@@ -107,12 +111,23 @@ sealed partial class MainWindow
                 field.Close();
                 tabs.Go(destination);
                 return new JsonObject { ["url"] = destination.AbsoluteUri, ["id"] = tabs.Live?.Id.ToString() };
+            case "clip":
+                // Что Paste and Go возьмёт вместо буфера обмена.
+                clip = Text("text");
+                return new JsonObject { ["clip"] = clip };
             case "select":
                 tabs.Select(Named());
                 return new JsonObject();
             case "close":
                 tabs.Close(Named());
                 return new JsonObject();
+            case "carry":
+            {
+                // Как строка, которую протащили указателем на travel точек и
+                // отпустили (сам жест — только мышью человека); без done — ещё несут.
+                Carry(Named(), request.GetProperty("travel").GetDouble(), Flag("done"));
+                return new JsonObject();
+            }
             case "wait":
             {
                 // Пока вкладка не догрузится: вместо пауз наугад. Догрузилась —
@@ -357,7 +372,7 @@ sealed partial class MainWindow
                     ["caption"] = new JsonArray([.. (InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
                         .GetRegionRects(NonClientRegionKind.Caption) ?? []).Select(hole => (JsonNode)new JsonArray(hole.X, hole.Y, hole.Width, hole.Height))]),
                     ["buttons"] = AppWindow.TitleBar.PreferredHeightOption != Microsoft.UI.Windowing.TitleBarHeightOption.Collapsed,
-                    ["focused"] = focused, ["crowned"] = crowned, ["immersed"] = immersed,
+                    ["focused"] = focused, ["crowned"] = crowned, ["immersed"] = immersed, ["find"] = find.Said,
                     // Где фокус с клавиатуры: имя элемента, его вид и как фокус туда попал.
                     ["at"] = FocusManager.GetFocusedElement(root.XamlRoot) is Control at ? $"{Called(at)} | {at.GetType().Name} | {at.FocusState}" : null,
                     // Номер процесса: bench.py stop закрывает по нему окно штатно.

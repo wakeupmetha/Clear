@@ -33,6 +33,8 @@ static class ShortcutsTests
         Check.Expect(Refuse("ctrl+c") == "Can’t be changed" && Refuse("ctrl+alt+t") == "Can’t be changed" && Refuse("shift+tab") == "Can’t be changed"
             && Refuse("f5") == "Can’t be changed" && Refuse("ctrl+left") == "Can’t be changed", "системные и правка текста — не отдаём");
         Check.Expect(Refuse("ctrl+tab") is null && Refuse("alt+left") is null, "Ctrl+Tab и Alt+Left годятся");
+        Check.Expect(Refuse("ctrl+1") == "Can’t be changed" && Refuse("ctrl+9") == "Can’t be changed" && Refuse("ctrl+0") is null && Refuse("ctrl+shift+1") is null,
+            "Ctrl+1–Ctrl+9 — вкладки по номеру, не отдаём; Ctrl+0 и Ctrl+Shift+1 годятся");
         Check.Expect(Shortcuts.All.All(command => command.Default is { } fallback && Shortcuts.Refusal(fallback) is null),
             "у всех умолчаний нет отказа");
         Check.Expect(Shortcuts.All.Select(command => command.Default).Distinct().Count() == Shortcuts.All.Length, "ни одно умолчание не повторяется");
@@ -64,12 +66,16 @@ static class ShortcutsTests
 
     static void Pages()
     {
-        (string Name, bool Yields)[] twelve =
+        (string Name, bool Yields)[] sixteen =
         [
-            ("ctrl+,", true), ("ctrl+t", false), ("ctrl+shift+n", false), ("ctrl+shift+t", false), ("ctrl+l", true), ("ctrl+w", false), ("ctrl+s", true),
-            ("ctrl+shift+f", true), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+shift+b", true), ("ctrl+h", true),
+            ("ctrl+,", true), ("ctrl+t", false), ("ctrl+shift+n", false), ("ctrl+shift+t", false), ("ctrl+l", true), ("ctrl+w", false),
+            ("ctrl+f", true), ("ctrl+s", true),
+            ("ctrl+shift+f", true), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+d", true), ("ctrl+shift+c", true),
+            ("ctrl+shift+v", true), ("ctrl+shift+b", true), ("ctrl+h", true),
         ];
-        Check.Expect(Shortcuts.Page().SequenceEqual(twelve), "при умолчаниях странице отдаются ровно двенадцать сочетаний с верным Yields");
+        var numbers = Enumerable.Range(1, 9).Select(n => ($"ctrl+{n}", false));
+        Check.Expect(Shortcuts.Page().SequenceEqual(sixteen.Concat(numbers)),
+            "при умолчаниях странице отдаются ровно шестнадцать сочетаний команд с верным Yields и Ctrl+1–Ctrl+9, которые страница не получает");
 
         Shortcuts.Assign(Combo.Parse("f2")!, "file.print");
         var page = Shortcuts.Page().ToArray();

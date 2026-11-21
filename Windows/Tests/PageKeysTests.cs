@@ -12,6 +12,8 @@ static class PageKeysTests
         Check.Expect(PageKeys.Read(token + ":ctrl+,", token) == "ctrl+,", "Ctrl+запятая принимается");
         Check.Expect(PageKeys.Read(token + ":ctrl+shift+f", token) == "ctrl+shift+f" && PageKeys.Read(token + ":ctrl+shift+s", token) is null,
             "Ctrl+Shift+F (режим фокуса) принимается, Ctrl+Shift+S — нет");
+        Check.Expect(PageKeys.Read(token + ":ctrl+5", token) == "ctrl+5" && PageKeys.Read(token + ":ctrl+0", token) is null,
+            "Ctrl+5 (вкладка по номеру) принимается, Ctrl+0 — нет");
         Check.Expect(PageKeys.Read("ffffffffffffffffffffffffffffffff:ctrl+w", token) is null, "чужая метка — не сочетание");
         Check.Expect(PageKeys.Read("ctrl+w", token) is null, "без метки — не сочетание");
         Check.Expect(PageKeys.Read(token + ":ctrl+q", token) is null, "сочетание не из списка отбрасывается");
@@ -22,6 +24,8 @@ static class PageKeysTests
         Check.Expect(script.Contains($"'{token}:'"), "метка сеанса стоит в скрипте");
         Check.Expect(Shortcuts.Page().All(page => script.Contains($"\"{page.Name}\"")), "все сочетания страницы есть в скрипте");
         Check.Expect(script.Contains("e.isTrusted"), "скрипт берёт только настоящие нажатия");
+        Check.Expect(script.Contains("const typing = new Set([\"ctrl+shift+v\"])") && script.Contains("typing.has(name) && editable("),
+            "Ctrl+Shift+V (Paste and Go) в поле ввода скрипт оставляет движку");
 
         // Нажатие по ссылке: за спиной или перед глазами, только с меткой сеанса.
         Check.Expect(PageKeys.Clicked(token + ":click:behind", token) == false && PageKeys.Clicked(token + ":click:front", token) == true,

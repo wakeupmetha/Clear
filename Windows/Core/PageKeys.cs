@@ -32,6 +32,9 @@ public static class PageKeys
           const keys = {{Json(Combo.Keys)}};
           const reserved = new Set({{Json(Names(yields: false))}});
           const yielding = new Set({{Json(Names(yields: true))}});
+          const typing = new Set({{Json(Typing())}});
+          // Поле ввода, и в теневом дереве (composedPath, а не target).
+          const editable = node => node.isContentEditable || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA';
           window.addEventListener('keydown', e => {
             if (!e.isTrusted || e.metaKey) return;
             const key = keys[e.keyCode];
@@ -44,6 +47,9 @@ public static class PageKeys
               return;
             }
             if (!yielding.has(name)) return;
+            // В поле ввода такое сочетание остаётся движку: Ctrl+Shift+V там —
+            // его вставка без оформления, а не уход со страницы с набранным.
+            if (typing.has(name) && editable(e.composedPath()[0])) return;
             // Своё действие движка (Ctrl+S — «Сохранить как») гасим сразу, а
             // забрала ли сочетание страница, узнаём по её preventDefault,
             // когда событие пройдёт всю страницу.
@@ -84,6 +90,11 @@ public static class PageKeys
     }
 
     static string[] Names(bool yields) => [.. Shortcuts.Page().Where(page => page.Yields == yields).Select(page => page.Name)];
+
+    // Сочетания команд с Typing: в поле ввода скрипт их не трогает (editable).
+    // ponytail: флажок и переключатель — тоже INPUT, на них Paste and Go не
+    // сработает. Мешает — смотреть тип поля (text, search, url…).
+    static string[] Typing() => [.. Shortcuts.All.Where(command => command.Typing).Select(command => Shortcuts.Key(command.Id)?.Name).OfType<string>()];
 
     // JSON — это и JS-литерал: кавычки и обратный слеш экранируются верно. Строгий
     // кодировщик заменил бы «+» и «'» на \u-коды: верно, но нечитаемо в скрипте.

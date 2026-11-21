@@ -87,7 +87,9 @@ public sealed record Combo(string Key, bool Ctrl = false, bool Shift = false, bo
 /// перезагрузка), пока оно на умолчании: страница его не получает. Yields —
 /// страница может забрать сочетание себе (Ctrl+S в редакторе); false —
 /// страница его не получает никогда. Also — вторая клавиша, только для показа.
-public sealed record Command(string Id, string Title, Combo? Default, bool Native = false, bool Yields = true, string? Also = null);
+/// Typing — в поле ввода это набор текста (Ctrl+Shift+V — вставка без
+/// оформления): команда срабатывает, только когда ничего не набирается.
+public sealed record Command(string Id, string Title, Combo? Default, bool Native = false, bool Yields = true, string? Also = null, bool Typing = false);
 
 /// Таблица команд окна и их сочетаний. Меняет только Settings › Shortcuts:
 /// страница и расширения этого не могут. В настройке лежит только отличие от
@@ -107,6 +109,12 @@ public static class Shortcuts
         new("file.openAddress", "Open Address…", Bind("ctrl+l")),
         new("file.closeTab", "Close Tab", Bind("ctrl+w"), Yields: false),
         new("file.print", "Print…", Bind("ctrl+p"), Native: true),
+        new("edit.find", "Find on Page…", Bind("ctrl+f")),
+        // В странице следующее и предыдущее совпадение листает сам движок — в
+        // том же поиске, что начат капсулой (FindBar). Перехватить их скриптом
+        // значило бы листать дважды: шаги сбивались.
+        new("edit.findNext", "Find Next", Bind("ctrl+g"), Native: true),
+        new("edit.findPrevious", "Find Previous", Bind("ctrl+shift+g"), Native: true),
         new("view.fold", "Hide Sidebar", Bind("ctrl+s")),
         new("view.focus", "Focus Mode", Bind("ctrl+shift+f")),
         new("view.reload", "Reload Page", Bind("ctrl+r"), Native: true, Also: "F5"),
@@ -115,6 +123,9 @@ public static class Shortcuts
         new("tabs.forward", "Forward", Bind("alt+right"), Native: true),
         new("tabs.next", "Next Tab", Bind("ctrl+tab"), Yields: false),
         new("tabs.previous", "Previous Tab", Bind("ctrl+shift+tab"), Yields: false),
+        new("tabs.duplicate", "Duplicate Tab", Bind("ctrl+d")),
+        new("tabs.copyAddress", "Copy Address", Bind("ctrl+shift+c")),
+        new("tabs.pasteAndGo", "Paste and Go", Bind("ctrl+shift+v"), Typing: true),
         // Добавить, а не переключить: сохранённая страница так и остаётся (апстрим).
         new("bookmarks.add", "Add This Page", Bind("ctrl+shift+b")),
         new("history.show", "Show History…", Bind("ctrl+h")),
@@ -183,7 +194,13 @@ public static class Shortcuts
         || (c.Ctrl && c.Alt)
         || (c.Alt && c.Key is "f4" or "space")
         || (c.Ctrl && c.Key is "left" or "right" or "up" or "down" or "home" or "end" or "backspace" or "delete")
+        || Numbers.Contains(c)
         || Editing.Contains(c);
+
+    /// Ctrl+1–Ctrl+9: вкладка по номеру, девятая — последняя (⌘1–⌘9 апстрима).
+    /// Свои клавиши окна, как F5: в таблицу команд не входят, не меняются, а
+    /// страница их не получает никогда.
+    public static readonly Combo[] Numbers = [.. Enumerable.Range(1, 9).Select(n => new Combo(n.ToString(), Ctrl: true))];
 
     /// Почему сочетание нельзя, или null, если можно. Сначала «не наше»: Tab и
     /// Esc без модификаторов — не про «добавьте Ctrl или Alt».
@@ -200,6 +217,8 @@ public static class Shortcuts
             if (command.Native && combo == command.Default) continue;
             yield return (combo.Name, command.Yields);
         }
+        // Движок о вкладках не знает: номера ловит скрипт страницы.
+        foreach (var number in Numbers) yield return (number.Name, false);
     }
 
     static void Put(string id, Combo? combo)

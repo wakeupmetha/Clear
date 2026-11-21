@@ -16,7 +16,11 @@ sealed class Tab
     /// Закреплённая вкладка (Pins.swift): буква и адрес, где её закрепили.
     /// Имя пока только проходит через сессию.
     public string? Pin, Name, Home;
+    /// Заглушена с её значка или меню: страница играет, звука нет (muted
+    /// апстрима). Переживает сессию.
     public bool Muted;
+    /// Страница сейчас играет звук (noisy апстрима): строка показывает динамик.
+    public bool Noisy;
     public DateTime? Touched;
     /// Приватная (shy апстрима): имя своего профиля движка в памяти — свои
     /// куки и входы, — ни истории, ни места в сессии. Не спит и не
@@ -330,6 +334,7 @@ sealed class Tabs(Panel stage)
             // что вкладка уже не его. В обратном порядке окно падало, если
             // вкладку закрывали сразу после открытия.
             tab.View = null;
+            tab.Noisy = false;
             // Файлы ещё идут: движок уходит со страницы, но живёт скрытым, пока
             // они не дойдут. Файл движок докачал бы и без него, но о том, что
             // дошёл, сказать было бы некому — строка в загрузках замерла бы.
@@ -502,12 +507,65 @@ sealed class Tabs(Panel stage)
         Move(tab, All.Count(other => other.Pin is not null && other != tab));
     }
 
+    /// Та же страница рядом с этой, перед глазами (duplicate апстрима).
+    /// У приватной — приватная. Пустую и свою страницу не дублируют.
+    public void Duplicate(Tab tab)
+    {
+        if (tab.IsBlank || tab.IsOwn || !Uri.TryCreate(tab.Url, UriKind.Absolute, out var page)) return;
+        OpenLink(page, tab, front: true);
+    }
+
+    /// Все, кроме этой (closeOthers апстрима): закреплённые кладутся, а не
+    /// закрываются, — как Close.
+    public void CloseOthers(Tab keep)
+    {
+        Select(keep);
+        foreach (var other in All.Where(tab => tab != keep).ToList()) Close(other);
+    }
+
+    /// Незакреплённые ниже этой (tabsBelow апстрима).
+    public List<Tab> Below(Tab tab) => All.IndexOf(tab) is var at and >= 0 ? [.. All.Skip(at + 1).Where(other => other.Pin is null)] : [];
+
+    /// Закрыть все ниже этой (closeTabsBelow апстрима). Снизу вверх: тогда
+    /// Ctrl+Shift+T вернёт их сверху вниз, каждую на её место.
+    public void CloseBelow(Tab tab)
+    {
+        var going = Below(tab);
+        // Сначала уйти с закрываемой, иначе соседки просыпались бы, чтобы тут же закрыться.
+        if (Live is { } live && going.Contains(live)) Select(tab);
+        for (var i = going.Count - 1; i >= 0; i--) Close(going[i]);
+    }
+
+    /// Есть что вернуть по Ctrl+Shift+T: пункт меню вкладки погашен, когда нечего.
+    public bool CanReopen => closed.Count > 0;
+
+    /// Выключить или вернуть звук вкладки (toggleMute апстрима). Спящую не
+    /// будим: звук снимет Wake, когда движок построят снова.
+    public void Mute(Tab tab)
+    {
+        tab.Muted = !tab.Muted;
+        if (tab.View?.CoreWebView2 is { } core) core.IsMuted = tab.Muted;
+        tab.Notify();
+        Save();
+    }
+
     /// Открепить: в начало незакреплённых.
     public void Unpin(Tab tab)
     {
         if (tab.Pin is null) return;
         tab.Pin = tab.Home = null;
         Move(tab, All.Count(other => other.Pin is not null && other != tab));
+    }
+
+    /// Перенести вкладку на место place, куда её дотащили в колонке
+    /// (move(_:to:) апстрима): закреплённая остаётся среди закреплённых,
+    /// остальные — после них.
+    public void Place(Tab tab, int place)
+    {
+        var pins = All.Count(other => other.Pin is not null);
+        place = tab.Pin is null ? Math.Clamp(place, pins, All.Count - 1) : Math.Clamp(place, 0, pins - 1);
+        var from = All.IndexOf(tab);
+        if (from >= 0 && from != place) Move(tab, place);
     }
 
     void Move(Tab tab, int place)
@@ -543,6 +601,14 @@ sealed class Tabs(Panel stage)
     {
         if (Live is null || All.Count < 2) return;
         Select(All[((All.IndexOf(Live) + by) % All.Count + All.Count) % All.Count]);
+    }
+
+    /// Ctrl+1–Ctrl+9 (select(index:) апстрима): вкладка с этим номером сверху,
+    /// закреплённые в счёте; девятая — последняя. Такой нет — ничего.
+    public void Number(int number)
+    {
+        var at = number == 9 ? All.Count - 1 : number - 1;
+        if (at >= 0 && at < All.Count) Select(All[at]);
     }
 
     public bool CanGoBack => Live?.View?.CoreWebView2?.CanGoBack == true;
@@ -736,6 +802,16 @@ sealed class Tabs(Panel stage)
         core.HistoryChanged += (_, _) => { if (tab == Live) Changed?.Invoke(); };
         // Видео во весь экран: окно следует за живой вкладкой (MainWindow.Immerse).
         core.ContainsFullScreenElementChanged += (_, _) => { if (tab == Live) Changed?.Invoke(); };
+        // Звук: заглушённой вкладке он снимается до первой загрузки — у спавшей
+        // движок строится заново. Динамик в строке — пока страница играет.
+        core.IsMuted = tab.Muted;
+        core.IsDocumentPlayingAudioChanged += (_, _) =>
+        {
+            // Движок, оставленный докачивать файлы (Strip), о вкладке не говорит.
+            if (tab.View != view) return;
+            tab.Noisy = core.IsDocumentPlayingAudio;
+            tab.Notify();
+        };
         // Значок, который объявила страница, движок уже скачал: кладём его в
         // запас, и знаки сайта во вкладках, истории и подсказках надевают его.
         core.FaviconChanged += async (_, _) =>

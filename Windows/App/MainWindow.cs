@@ -27,6 +27,7 @@ sealed partial class MainWindow : Window
     readonly Grid pages = new();
     readonly Button newTab;
     readonly Grid card;
+    readonly FindBar find;
     readonly Button fold, back, forward, reload, bookmark, fetches;
     readonly Tabs tabs;
     readonly Field field;
@@ -129,6 +130,8 @@ sealed partial class MainWindow : Window
             BorderBrush = Palette.CardEdge, BorderThickness = new Thickness(1),
         };
         card.Children.Add(pages);
+        find = new FindBar(tabs);
+        card.Children.Add(find.View);
         card.Children.Add(field);
         offer = new StoreOffer(tabs);
         card.Children.Add(offer.View);
@@ -271,7 +274,8 @@ sealed partial class MainWindow : Window
             if (i == tabs.All.Count) break;
             var tab = tabs.All[i];
             if (!shown.TryGetValue(tab.Id, out var row))
-                shown[tab.Id] = row = new TabRow(tab, () => Pick(tab), () => Drop(tab), () => { if (tab.Pin is null) tabs.Pin(tab); else tabs.Unpin(tab); });
+                shown[tab.Id] = row = new TabRow(tab, tabs, () => Pick(tab), () => Drop(tab), () => { if (tab.Pin is null) tabs.Pin(tab); else tabs.Unpin(tab); }, () => tabs.Mute(tab),
+                    () => tabs.Duplicate(tab), () => CopyAddress(tab), (travel, done) => Carry(tab, travel, done));
             row.Live = tab == tabs.Live;
             Seat(row, place++);
         }
@@ -285,6 +289,7 @@ sealed partial class MainWindow : Window
         Title = tabs.Live is { IsBlank: false } live ? live.Label : Store.Name;
         bar.Show(tabs.Live);
         offer.Show(tabs.Live);
+        find.Follow(tabs.Live);
 
         // Пустая вкладка — это и есть поле: в ней больше нечего показывать.
         if (tabs.Live is { IsBlank: true })
@@ -300,6 +305,62 @@ sealed partial class MainWindow : Window
         if (place < rows.Children.Count && rows.Children[place] == row) return;
         rows.Children.Remove(row);
         rows.Children.Insert(place, row);
+    }
+
+    /// Строку несут указателем на travel точек по высоте; done — отпустили.
+    /// Строки на ходу не переставляются: вынутая из колонки строка теряет
+    /// захват указателя. Пока несут, строки только сдвинуты, а вкладка
+    /// переезжает, когда её отпустят (Tabs.Place). Ряд у закреплённых свой.
+    void Carry(Tab tab, double travel, bool done)
+    {
+        var from = tabs.All.IndexOf(tab);
+        if (from < 0) return;
+        var pins = tabs.All.Count(other => other.Pin is not null);
+        var (first, last) = tab.Pin is null ? (pins, tabs.All.Count - 1) : (0, pins - 1);
+        var step = Metrics.Row + Metrics.TabGap;
+        // Дальше своего ряда строка не уходит.
+        travel = Math.Clamp(travel, (first - from) * step, (last - from) * step);
+        var to = from + (int)Math.Round(travel / step);
+        for (var i = first; i <= last; i++)
+        {
+            if (!shown.TryGetValue(tabs.All[i].Id, out var row)) continue;
+            var y = done ? 0 : i == from ? travel : i > from && i <= to ? -step : i < from && i >= to ? step : 0;
+            row.Shift(y, !done && i == from);
+        }
+        if (done) tabs.Place(tab, to);
+    }
+
+    /// Адрес страницы — в буфер обмена (copyAddress апстрима).
+    // ponytail: апстрим ещё говорит «Address copied»; у нас строки для таких слов нет.
+    static void CopyAddress(Tab tab)
+    {
+        if (tab.IsBlank || tab.IsOwn) return;
+        var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        data.SetText(tab.Url);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+    }
+
+    /// Ctrl+Shift+V, когда ничего не набирается (pasteAndGo апстрима): текст из
+    /// буфера обмена — адрес или слова для поиска — в живой вкладке.
+    async void PasteAndGo()
+    {
+        // В тест-канале буфер обмена — человека за этим компьютером: его не
+        // читаем, текст даёт проверка (clip), иначе он ушёл бы поисковику.
+        var text = clip;
+        if (!Store.Testing)
+        {
+            try
+            {
+                var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+                if (!content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text)) return;
+                text = await content.GetTextAsync();
+            }
+            // Буфер обмена держит другая программа.
+            catch (System.Runtime.InteropServices.COMException) { return; }
+        }
+        if (Tabs.Destination(text) is not { } destination) return;
+        field.Close();
+        tabs.Go(destination);
     }
 
     /// Закрыть вкладку со строки: крестик, средняя кнопка, Delete.
@@ -403,6 +464,9 @@ sealed partial class MainWindow : Window
             ["file.openAddress"] = EditAddress,
             ["file.closeTab"] = () => { if (tabs.Live is { } live) tabs.Close(live); },
             ["file.print"] = tabs.Print,
+            ["edit.find"] = find.Open,
+            ["edit.findNext"] = () => find.Look(true),
+            ["edit.findPrevious"] = () => find.Look(false),
             ["view.fold"] = ToggleFold,
             ["view.focus"] = ToggleFocus,
             ["view.reload"] = tabs.Reload,
@@ -411,6 +475,9 @@ sealed partial class MainWindow : Window
             ["tabs.forward"] = tabs.Forward,
             ["tabs.next"] = () => tabs.Step(1),
             ["tabs.previous"] = () => tabs.Step(-1),
+            ["tabs.duplicate"] = () => { if (tabs.Live is { } live) tabs.Duplicate(live); },
+            ["tabs.copyAddress"] = () => { if (tabs.Live is { } live) CopyAddress(live); },
+            ["tabs.pasteAndGo"] = PasteAndGo,
             ["bookmarks.add"] = () => { if (Keepable() is { } page) Bookmarks.Add(page, tabs.Live!.Title); },
             ["history.show"] = () => tabs.Show(Own.History),
             ["history.downloads"] = () => tabs.Show(Own.Downloads),
@@ -418,7 +485,7 @@ sealed partial class MainWindow : Window
         // Сочетания, которые приходят и из страницы (PageKeys): по имени.
         var fromPage = new Dictionary<string, Action>();
         (string? Name, long At) last = default;
-        void On(Combo combo, Action act)
+        void On(Combo combo, Action act, bool typing = false)
         {
             var with = (combo.Ctrl ? VirtualKeyModifiers.Control : 0) | (combo.Shift ? VirtualKeyModifiers.Shift : 0)
                 | (combo.Alt ? VirtualKeyModifiers.Menu : 0);
@@ -427,6 +494,9 @@ sealed partial class MainWindow : Window
             {
                 // Пока в настройках ждут новое сочетание, нажатие — ему, а не команде.
                 if (SettingsPage.Recording) return;
+                // Command.Typing: в поле окна нажатие остаётся полю; в странице
+                // решает её скрипт (PageKeys) — набирают ли там что-то.
+                if (typing && FocusManager.GetFocusedElement(root.XamlRoot) is TextBox or WebView2) return;
                 pressed.Handled = true;
                 last = (combo.Name, Environment.TickCount64);
                 act();
@@ -439,12 +509,17 @@ sealed partial class MainWindow : Window
             root.KeyboardAccelerators.Clear();
             fromPage.Clear();
             foreach (var command in Shortcuts.All)
-                if (Shortcuts.Key(command.Id) is { } combo) On(combo, acts[command.Id]);
+                if (Shortcuts.Key(command.Id) is { } combo) On(combo, acts[command.Id], command.Typing);
             // Вторые клавиши, как в браузерах на Windows. Не меняются: Shortcuts
             // их никому не отдаёт. Те, что движок понимает сам внутри страницы
             // (F5, F12, Ctrl+P…), здесь работают и из адресной строки с колонкой.
             On(new Combo("f5"), tabs.Reload);
             On(new Combo("f12"), tabs.Inspect);
+            for (var n = 1; n <= 9; n++)
+            {
+                var number = n;
+                On(Shortcuts.Numbers[number - 1], () => tabs.Number(number));
+            }
         }
         tabs.Pressed += name =>
         {
