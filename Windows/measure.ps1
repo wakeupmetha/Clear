@@ -73,11 +73,31 @@ try {
     $five = Tree
 
     # Процессор в простое: 10 с с пятью открытыми страницами, доля одного ядра.
-    $cpu = { (Get-Process -Id (Tree).Ids -ErrorAction SilentlyContinue | Measure-Object CPU -Sum).Sum }
+    # Мерим через 30 с после последней загрузки: секунд двадцать после
+    # загрузок работает процесс uBlock Origin (около 5% ядра), потом всё стихает
+    # (check-idle, задача 21). До 21.11.2026 мерили через 5 с и ловили этот хвост.
+    Start-Sleep 25
+    $cpu ={ (Get-Process -Id (Tree).Ids -ErrorAction SilentlyContinue | Measure-Object CPU -Sum).Sum }
     $before = & $cpu; Start-Sleep 10; $after = & $cpu
     $idle = [math]::Round(($after - $before) / 10 * 100, 1)
 
     $clock.Restart(); Stop-Shell; $quit = $clock.ElapsedMilliseconds
+
+    # Первая страница в свежем мире гуляет на сотни миллисекунд (ставится uBlock,
+    # поднимается движок): у одной сборки подряд 479–825 мс (задача 27). Поэтому
+    # ещё два свежих запуска и медиана трёх, а не один замер.
+    $colds = @($cold)
+    foreach ($again in 1..2) {
+        Reset-World; [void](Start-Shell)
+        while ($true) { try { [void](Send-Bench @{ do = "tabs" }); break } catch { Start-Sleep -Milliseconds 50 } }
+        Start-Sleep 5
+        $clock.Restart()
+        $id = (B @{ do = "open"; url = "http://127.0.0.1:8767/page1.html" }).id
+        [void](B @{ do = "wait"; id = $id })
+        $colds += $clock.ElapsedMilliseconds - 500
+        Stop-Shell
+    }
+    $cold = ($colds | Sort-Object)[1]
 
     $version = (Get-Item $script:Exe).VersionInfo.ProductVersion -replace '\+.*$', ''
     $kind = if ($script:Exe -like "*\bin\*") { "Debug" } else { "Release" }
@@ -89,7 +109,7 @@ try {
     "пустое окно:         $(Say $empty), из них оболочка $($empty.Shell) МБ; рабочий набор $($empty.Set) МБ"
     "1 страница:          $(Say $first); рабочий набор $($first.Set) МБ"
     "5 страниц:           $(Say $five); рабочий набор $($five.Set) МБ"
-    "первая страница:     $cold мс от команды, с поднятием движка"
+    "первая страница:     $cold мс от команды, с поднятием движка (медиана свежих запусков: $($colds -join ', '))"
     "загрузка страницы:   $($loads -join ', ') мс (часы страницы), в среднем $load мс"
     "процессор в простое: $idle% ядра"
     "закрытие:            $quit мс"

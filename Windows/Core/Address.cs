@@ -20,6 +20,40 @@ public static class Address
     // адрес перейти не может, это запрещает сам движок.
     static readonly HashSet<string> Ours = ["http", "https", "file", "about", "data", "edge", "chrome"];
 
+    /// Адреса, с которыми запустили программу (ссылки извне, Links.swift
+    /// апстрима): http и https и страницы на диске — .html, .htm, .xhtml, как
+    /// апстрим берёт из Finder. Ключи и путь самой программы пропускаются.
+    public static IEnumerable<Uri> Launched(IEnumerable<string> words)
+    {
+        foreach (var word in words)
+        {
+            if (Uri.TryCreate(word.Trim(), UriKind.Absolute, out var url) && url.Scheme is "http" or "https") yield return url;
+            else if (Path.GetExtension(word.Trim()).ToLowerInvariant() is ".html" or ".htm" or ".xhtml" && File(word) is { } page) yield return page;
+        }
+    }
+
+    /// Командная строка по словам: пробелы делят, двойные кавычки держат вместе.
+    // ponytail: без правил обратной косой черты перед кавычкой (CommandLineToArgvW):
+    // адрес и путь, которые отдаёт система, их не содержат.
+    public static IEnumerable<string> Words(string line)
+    {
+        var word = new System.Text.StringBuilder();
+        var quoted = false;
+        var any = false;
+        foreach (var c in line)
+        {
+            if (c == '"') { quoted = !quoted; any = true; }
+            else if (char.IsWhiteSpace(c) && !quoted)
+            {
+                if (any) yield return word.ToString();
+                word.Clear();
+                any = false;
+            }
+            else { word.Append(c); any = true; }
+        }
+        if (any) yield return word.ToString();
+    }
+
     /// Путь к файлу на диске. На диск смотрит только подтверждённый переход:
     /// подсказки и перетащенный текст сюда не ходят. Только обычный файл: не
     /// папка, не ссылка, не устройство.
@@ -187,6 +221,8 @@ public static class Own
 
     public static readonly Uri Settings = new(Scheme + "://settings");
     public static readonly Uri History = new(Scheme + "://history");
+    public static readonly Uri Downloads = new(Scheme + "://downloads");
+    public static readonly Uri Bookmarks = new(Scheme + "://bookmarks");
 
     public static bool Is(Uri url) => url.Scheme == Scheme;
 
@@ -195,6 +231,8 @@ public static class Own
     {
         "settings" => "Settings",
         "history" => "History",
+        "downloads" => "Downloads",
+        "bookmarks" => "Bookmarks",
         _ => null,
     };
 }

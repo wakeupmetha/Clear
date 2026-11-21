@@ -24,6 +24,7 @@ static class StoreTests
         Settings.Set("sidebar.folded", true);
         Settings.Set("engine", "duckduckgo");
         Settings.Set("shield.paused", ["news.example", "shop.example"]);
+        Settings.Set("sleep.after", 2.5);
         Check.Expect(Settings.Bool("sidebar.folded") && Settings.Text("engine") == "duckduckgo", "настройка читается сразу после записи");
         Check.Expect(Settings.List("shield.paused") is ["news.example", "shop.example"], "список хранит порядок");
         Check.Expect(Settings.Text("sidebar.folded") is null && !Settings.Bool("engine"), "значение не того типа читается как отсутствующее");
@@ -34,6 +35,7 @@ static class StoreTests
         Check.Expect(!Settings.Bool("sidebar.folded"), "у другого мира настройки свои");
         Check.World("settings");
         Check.Expect(Settings.Bool("sidebar.folded") && Settings.List("shield.paused").Length == 2, "настройки переживают перезапуск");
+        Check.Expect(Settings.Number("sleep.after") == 2.5 && Settings.Number("engine") == 0, "число — тоже; не число читается как 0");
 
         Settings.Remove("sidebar.folded");
         Check.Expect(!Settings.Bool("sidebar.folded"), "удалённая настройка возвращается к значению по умолчанию");
@@ -109,6 +111,8 @@ static class StoreTests
         Shield.Delegated = true;
         Check.Expect(!Shield.Blocks(new Uri("https://stats.g.doubleclick.net/x.js"), "news.example") && Shield.Script() == "",
             "когда блокирует uBlock, свой список молчит: ни запросов, ни скрипта");
+        Check.Expect(Shield.Blocks(new Uri("https://stats.g.doubleclick.net/x.js"), "news.example", alone: true) && Shield.Script(alone: true).Length > 0,
+            "а у страницы без uBlock (приватной) — работает");
         Shield.Delegated = false;
         Check.Expect(Shield.Blocks(new Uri("https://stats.g.doubleclick.net/x.js"), "news.example"), "поддомен рекламной сети блокируется");
         Check.Expect(Shield.Blocks(new Uri("https://doubleclick.net/x.js"), null), "и когда страница неизвестна");

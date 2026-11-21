@@ -63,4 +63,13 @@ function Send-Bench([hashtable]$Request) {
 function Stop-Shell { $p = Get-Shell; if ($p) { [void]$p.CloseMainWindow(); if (-not $p.WaitForExit(5000)) { Stop-Process -Id $p.Id -Force } } }
 
 # Чистый мир: без вкладок, истории и настроек прошлой проверки.
-function Reset-World { Stop-Shell; if (Test-Path $script:World) { Remove-Item -Recurse -Force $script:World -Confirm:$false } }
+function Reset-World {
+    Stop-Shell
+    # Окно уже закрылось, а процессы движка (со страницей и uBlock) отпускают
+    # папку мира ещё долю секунды: стереть сразу — «файл занят» (задача 13).
+    foreach ($try in 1..50) {
+        if (-not (Test-Path $script:World)) { return }
+        try { Remove-Item -Recurse -Force $script:World -Confirm:$false -ErrorAction Stop; return }
+        catch [System.IO.IOException] { if ($try -eq 50) { throw }; Start-Sleep -Milliseconds 200 }
+    }
+}

@@ -112,7 +112,7 @@ sealed class Mark : Grid
     /// Значок своей страницы браузера и страницы флагов движка (её открывают из
     /// настроек, «Engine experiments»); null — это сайт.
     static string? Sign(Uri url) =>
-        Own.Is(url) ? (url.Host == "history" ? Ui.Clock : Ui.Gear)
+        Own.Is(url) ? (url.Host switch { "history" => Ui.Clock, "downloads" => Ui.Download, "bookmarks" => Ui.Bookmark, _ => Ui.Gear })
         : url.Scheme == "edge" && url.Host == "flags" ? Ui.Flask : null;
 
     static ImageSource? Picture(Uri url)

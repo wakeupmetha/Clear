@@ -102,6 +102,8 @@ public static class Shortcuts
     [
         new("app.settings", "Settings…", Bind("ctrl+,")),
         new("file.newTab", "New Tab", Bind("ctrl+t"), Yields: false),
+        new("file.newPrivateTab", "New Private Tab", Bind("ctrl+shift+n"), Yields: false),
+        new("file.reopen", "Reopen Closed Tab", Bind("ctrl+shift+t"), Yields: false),
         new("file.openAddress", "Open Address…", Bind("ctrl+l")),
         new("file.closeTab", "Close Tab", Bind("ctrl+w"), Yields: false),
         new("file.print", "Print…", Bind("ctrl+p"), Native: true),
@@ -113,6 +115,8 @@ public static class Shortcuts
         new("tabs.forward", "Forward", Bind("alt+right"), Native: true),
         new("tabs.next", "Next Tab", Bind("ctrl+tab"), Yields: false),
         new("tabs.previous", "Previous Tab", Bind("ctrl+shift+tab"), Yields: false),
+        // Добавить, а не переключить: сохранённая страница так и остаётся (апстрим).
+        new("bookmarks.add", "Add This Page", Bind("ctrl+shift+b")),
         new("history.show", "Show History…", Bind("ctrl+h")),
         new("history.downloads", "Downloads…", Bind("ctrl+j"), Native: true),
     ];

@@ -88,6 +88,17 @@ static class AddressTests
         }
         Check.Expect(Address.File(Store.Folder) is null, "папка не файл");
         Check.Expect(Address.File(Store.File("missing.pdf")) is null, "отсутствующий файл не файл");
+
+        // Ссылки извне: командная строка второго запуска приходит одной строкой.
+        var page = Store.File("résumé #1 100%.html");
+        var exe = Store.File("aerio.exe");
+        File.WriteAllText(exe, "program");
+        var words = Address.Words($"\"{exe}\"  https://example.com/a?b=1 --veloapp-x \"{page}\" {Store.File("report.pdf")} mailto:a@b.c \"\"").ToList();
+        Check.Expect(words.Count == 7 && words[0] == exe && words[3] == page && words[6] == "", "командная строка по словам: кавычки держат путь с пробелами");
+        var launched = Address.Launched(words).ToList();
+        Check.Expect(launched.Count == 2 && launched[0].AbsoluteUri == "https://example.com/a?b=1" && launched[1].IsFile && launched[1].LocalPath == page,
+            "из запуска берутся https и страница .html; программа, ключ, pdf, mailto и пустое — нет");
+        Check.Expect(!Address.Launched([Store.File("missing.html"), "ftp://x.y/", "example.com"]).Any(), "нет файла, чужая схема и голое имя — не адреса запуска");
     }
 
     static void Engines()

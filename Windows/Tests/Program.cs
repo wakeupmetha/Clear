@@ -22,6 +22,9 @@ try
     await IconsTests.Run();
     ShortcutsTests.Run();
     WindowFrameTests.Run();
+    TabSleepTests.Run();
+    DownloadsTests.Run();
+    BookmarksTests.Run();
     PageKeysTests.Run();
     ExtensionsTests.Run();
     CrxTests.Run();

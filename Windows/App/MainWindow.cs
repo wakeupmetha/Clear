@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
@@ -26,7 +27,7 @@ sealed partial class MainWindow : Window
     readonly Grid pages = new();
     readonly Button newTab;
     readonly Grid card;
-    readonly Button fold, back, forward, reload;
+    readonly Button fold, back, forward, reload, bookmark, fetches;
     readonly Tabs tabs;
     readonly Field field;
     readonly Bar bar;
@@ -34,6 +35,8 @@ sealed partial class MainWindow : Window
     readonly Actions actions;
     readonly StoreOffer offer;
     readonly Dictionary<Guid, TabRow> shown = [];
+    /// Черта под закреплёнными вкладками.
+    readonly Border pinLine = new() { Height = 1, Background = Palette.Hairline, Margin = new Thickness(10, 4, 10, 4) };
     /// Места полосы, отданные кнопкам и строке: ставятся заново, только когда сдвинулись.
     RectInt32[] holes = [];
     readonly CancellationTokenSource closing = new();
@@ -69,6 +72,16 @@ sealed partial class MainWindow : Window
         doors.Children.Add(back);
         doors.Children.Add(forward);
         doors.Children.Add(reload);
+        // Закладка: залита на сохранённой странице; щелчок сохраняет и убирает.
+        bookmark = Door(Ui.Bookmark, "Bookmark this page", ToggleBookmark);
+        doors.Children.Add(bookmark);
+        Bookmarks.Changed += Bookmarked;
+        // Загрузки: кнопка в полосе, пока файлы идут (FetchDoor апстрима).
+        // ponytail: без круга, который наполняется, и без «всегда показывать».
+        fetches = Door(Ui.Download, "Downloads", () => tabs.Show(Own.Downloads));
+        fetches.Visibility = Visibility.Collapsed;
+        doors.Children.Add(fetches);
+        Fetching.Changed += () => fetches.Visibility = Fetching.Active.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // Кнопки остаются в полосе и когда столбец колонки сжат до нуля.
         Grid.SetColumnSpan(doors, 2);
         root.Children.Add(doors);
@@ -99,6 +112,7 @@ sealed partial class MainWindow : Window
             Spacing = Metrics.TabGap, Margin = new Thickness(Metrics.SidePadding, 0, Metrics.SidePadding, Metrics.SidePadding),
         };
         own.Children.Add(Quiet(Ui.Clock, "History", () => tabs.Show(Own.History)));
+        own.Children.Add(Quiet(Ui.Bookmark, "Bookmarks", () => tabs.Show(Own.Bookmarks)));
         own.Children.Add(Quiet(Ui.Gear, "Settings", () => tabs.Show(Own.Settings)));
         var column = new Grid();
         column.RowDefinitions.Add(new RowDefinition());
@@ -143,12 +157,18 @@ sealed partial class MainWindow : Window
             else if (key == "sidebar.folded" && Settings.Bool(key) != folded) ToggleFold();
             else if (key == "window.focus") FollowFocus();
             else if (key is "sites.keep" or "passwords.save" or "contacts.fill") tabs.Redress();
+            else if (key is "tabs.sleep" or "tabs.sleep.pace" or "sleep.after") tabs.Doze();
         };
 
         root.Loaded += (_, _) =>
         {
             Theme();
             Passthrough();
+            // Фокус, поставленный при восстановлении вкладок, ещё без окна, не
+            // брался: его забирала первая кнопка полосы, с рамкой, а проснувшийся
+            // движок потом не отнимал его у «колонки» (задача 31). Ставим заново.
+            if (field.IsOpen) field.Take();
+            else if (tabs.Live is { } live) tabs.Face(live);
         };
         root.ActualThemeChanged += (_, _) => Theme();
         // Колонку складывают с движением, окно тянут за край: места кнопок и
@@ -167,9 +187,11 @@ sealed partial class MainWindow : Window
         {
             closing.Cancel();
             tabs.Save(now: true);
+            tabs.Forget();
             tabs.History.Flush();
             Settings.Set("window.frame", WindowFrame.Write(new(normal.X, normal.Y, normal.Width, normal.Height)));
-            Settings.Set("window.zoomed", AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized });
+            // Закрыли с видео во весь экран — запоминаем, каким окно было до того.
+            Settings.Set("window.zoomed", (immersed ? kept : AppWindow.Presenter) is OverlappedPresenter { State: OverlappedPresenterState.Maximized });
             Disk.Drain();
         };
 
@@ -177,9 +199,21 @@ sealed partial class MainWindow : Window
         // настройки показывают его панель); не встанет — UBlock.Ensure вернёт.
         Shield.Delegated = Directory.Exists(UBlock.Folder);
         tabs.Restore();
+        Links.Serve(DispatcherQueue, Arrive);
         // Тест-канал слушает только в тестовом мире: установленный браузер
         // никому не даёт собой управлять.
         if (Store.Testing) _ = Bench.Serve(Bench.Pipe, Answer, closing.Token);
+    }
+
+    /// Адреса извне (Links): каждый — вкладкой, последний перед глазами. Пустая
+    /// вкладка перед глазами берёт адрес сама, а не остаётся пустой рядом.
+    void Arrive(IReadOnlyList<Uri> urls)
+    {
+        foreach (var url in urls)
+            if (tabs.Live is { IsBlank: true, Private: false }) tabs.Go(url);
+            else tabs.Open(url);
+        // Свёрнутое окно разворачивается: ссылку открыли, чтобы её увидеть.
+        if (!App.Quiet && AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } shown) shown.Restore();
     }
 
     /// Рамка обычного, не развёрнутого окна: её и запоминаем при закрытии, чтобы
@@ -217,6 +251,7 @@ sealed partial class MainWindow : Window
     /// Колонка, кнопки и заголовок окна приводятся к нынешним вкладкам.
     void Sync()
     {
+        Immerse(tabs.Live?.View?.CoreWebView2?.ContainsFullScreenElement == true);
         foreach (var gone in shown.Keys.Except(tabs.All.Select(tab => tab.Id)).ToList())
         {
             shown[gone].Detach();
@@ -228,10 +263,15 @@ sealed partial class MainWindow : Window
         // ponytail: на каждое изменение просматриваются все строки. При тысячах
         // вкладок трогать только изменившуюся.
         var place = 0;
-        foreach (var tab in tabs.All)
+        // Закреплённые — в начале списка (Tabs.Pin), под ними черта.
+        var pins = tabs.All.Count(tab => tab.Pin is not null);
+        for (var i = 0; i <= tabs.All.Count; i++)
         {
+            if (i == pins && pins > 0) Seat(pinLine, place++);
+            if (i == tabs.All.Count) break;
+            var tab = tabs.All[i];
             if (!shown.TryGetValue(tab.Id, out var row))
-                shown[tab.Id] = row = new TabRow(tab, () => Pick(tab), () => Drop(tab));
+                shown[tab.Id] = row = new TabRow(tab, () => Pick(tab), () => Drop(tab), () => { if (tab.Pin is null) tabs.Pin(tab); else tabs.Unpin(tab); });
             row.Live = tab == tabs.Live;
             Seat(row, place++);
         }
@@ -241,6 +281,7 @@ sealed partial class MainWindow : Window
         Lit(back, tabs.CanGoBack);
         Lit(forward, tabs.CanGoForward);
         Lit(reload, tabs.Live is { IsBlank: false, IsOwn: false });
+        Bookmarked();
         Title = tabs.Live is { IsBlank: false } live ? live.Label : Store.Name;
         bar.Show(tabs.Live);
         offer.Show(tabs.Live);
@@ -357,6 +398,8 @@ sealed partial class MainWindow : Window
         {
             ["app.settings"] = () => tabs.Show(Own.Settings),
             ["file.newTab"] = () => tabs.Open(null),
+            ["file.newPrivateTab"] = () => tabs.OpenPrivate(),
+            ["file.reopen"] = () => tabs.Reopen(),
             ["file.openAddress"] = EditAddress,
             ["file.closeTab"] = () => { if (tabs.Live is { } live) tabs.Close(live); },
             ["file.print"] = tabs.Print,
@@ -368,8 +411,9 @@ sealed partial class MainWindow : Window
             ["tabs.forward"] = tabs.Forward,
             ["tabs.next"] = () => tabs.Step(1),
             ["tabs.previous"] = () => tabs.Step(-1),
+            ["bookmarks.add"] = () => { if (Keepable() is { } page) Bookmarks.Add(page, tabs.Live!.Title); },
             ["history.show"] = () => tabs.Show(Own.History),
-            ["history.downloads"] = () => tabs.Downloads(),
+            ["history.downloads"] = () => tabs.Show(Own.Downloads),
         };
         // Сочетания, которые приходят и из страницы (PageKeys): по имени.
         var fromPage = new Dictionary<string, Action>();
@@ -449,6 +493,29 @@ sealed partial class MainWindow : Window
 
     // Кнопка, которой сейчас нечего делать, гаснет и не отзывается: выключенная,
     // она не берёт ни фокус, ни нажатия, и диктор читает её недоступной.
+    /// Страница, которую можно сохранить закладкой: сайт, а не пустая
+    /// вкладка и не своя страница браузера.
+    Uri? Keepable() => tabs.Live is { IsBlank: false, IsOwn: false, Page: { Scheme: "http" or "https" } page } ? page : null;
+
+    /// Кнопка-закладка залита на сохранённой странице (BookmarkDoor апстрима).
+    // ponytail: щелчок только сохраняет и убирает. Карточки с именем и папкой
+    // (BookmarkCard) и списка под кнопкой нет; список — на странице Bookmarks.
+    void Bookmarked()
+    {
+        var page = Keepable();
+        var kept = page is not null && Bookmarks.Find(page) is not null;
+        Lit(bookmark, page is not null);
+        ((Icon)((Border)bookmark.Content).Child).Fill = kept ? Palette.Muted : null;
+        AutomationProperties.SetName(bookmark, kept ? "Remove bookmark" : "Bookmark this page");
+    }
+
+    void ToggleBookmark()
+    {
+        if (Keepable() is not { } page) return;
+        if (Bookmarks.Find(page) is { } kept) Bookmarks.Remove(kept.Id);
+        else Bookmarks.Add(page, tabs.Live!.Title);
+    }
+
     static void Lit(Button door, bool on)
     {
         door.IsEnabled = on;

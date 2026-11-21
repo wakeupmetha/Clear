@@ -134,10 +134,11 @@ public static class Shield
     ];
 
     /// Блокировать ли запрос со страницы на pageHost. Запросы сайта к самому
-    /// себе не трогаем: собственные скрипты сайта — это и есть сайт.
-    public static bool Blocks(Uri request, string? pageHost)
+    /// себе не трогаем: собственные скрипты сайта — это и есть сайт. alone —
+    /// у страницы нет uBlock (приватная вкладка): свой список работает и при нём.
+    public static bool Blocks(Uri request, string? pageHost, bool alone = false)
     {
-        if (!Enabled || Delegated || request.Scheme is not ("http" or "https")) return false;
+        if (!Enabled || (Delegated && !alone) || request.Scheme is not ("http" or "https")) return false;
         if (pageHost is not null && PausedOn(pageHost)) return false;
         var host = request.Host.AsSpan();
         if (pageHost is not null && Site(host).SequenceEqual(Site(pageHost))) return false;
@@ -181,9 +182,9 @@ public static class Shield
     /// страницы и регистрируется заранее, а выбрать стили под сайт из кода
     /// приложения к началу загрузки можно не успеть. Таблица стилей создаётся
     /// без элемента в документе: в этот момент у документа ещё нет корня.
-    public static string Script()
+    public static string Script(bool alone = false)
     {
-        if (!Enabled || Delegated) return "";
+        if (!Enabled || (Delegated && !alone)) return "";
         static string Json(string[] values) => JsonSerializer.Serialize(values, Browser.Json.Default.StringArray);
         var bySite = SlotsBySite.Select(entry => (string[])[entry.Selector, .. entry.Sites]).ToArray();
         return $$"""

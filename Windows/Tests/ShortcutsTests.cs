@@ -64,12 +64,12 @@ static class ShortcutsTests
 
     static void Pages()
     {
-        (string Name, bool Yields)[] nine =
+        (string Name, bool Yields)[] twelve =
         [
-            ("ctrl+,", true), ("ctrl+t", false), ("ctrl+l", true), ("ctrl+w", false), ("ctrl+s", true),
-            ("ctrl+shift+f", true), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+h", true),
+            ("ctrl+,", true), ("ctrl+t", false), ("ctrl+shift+n", false), ("ctrl+shift+t", false), ("ctrl+l", true), ("ctrl+w", false), ("ctrl+s", true),
+            ("ctrl+shift+f", true), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+shift+b", true), ("ctrl+h", true),
         ];
-        Check.Expect(Shortcuts.Page().SequenceEqual(nine), "при умолчаниях странице отдаются ровно девять сочетаний с верным Yields");
+        Check.Expect(Shortcuts.Page().SequenceEqual(twelve), "при умолчаниях странице отдаются ровно двенадцать сочетаний с верным Yields");
 
         Shortcuts.Assign(Combo.Parse("f2")!, "file.print");
         var page = Shortcuts.Page().ToArray();

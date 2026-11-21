@@ -16,9 +16,10 @@ sealed class TabRow : Grid
     readonly Border cover;
     readonly Button go, shut;
     readonly ProgressRing ring;
+    readonly FrameworkElement shy;
     bool live, hovering;
 
-    public TabRow(Tab tab, Action select, Action close)
+    public TabRow(Tab tab, Action select, Action close, Action pin)
     {
         Tab = tab;
         Height = Metrics.Row;
@@ -49,6 +50,15 @@ sealed class TabRow : Grid
         Grid.SetColumn(ring, 1);
         face.Children.Add(ring);
 
+        // Приватная — тихий знак справа, как eye.slash в апстриме.
+        shy = Ui.Glyph(Ui.EyeOff, 12, Palette.Muted);
+        shy.HorizontalAlignment = HorizontalAlignment.Right;
+        shy.VerticalAlignment = VerticalAlignment.Center;
+        shy.Margin = new Thickness(0, 0, 9, 0);
+        shy.IsHitTestVisible = false;
+        Grid.SetColumn(shy, 1);
+        face.Children.Add(shy);
+
         go = Ui.Bare(new Button
         {
             HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
@@ -61,12 +71,22 @@ sealed class TabRow : Grid
             press.Handled = true;
             close();
         };
-        AutomationProperties.SetHelpText(go, "Delete closes the tab");
         // Диктор читает «вкладка», а не «кнопка»: пустая вкладка зовётся так же,
         // как строка «New tab» под ней.
         // ponytail: какая вкладка живая, диктор не слышит (её имя — в заголовке
         // окна). Понадобится — свой AutomationPeer с выбором.
         AutomationProperties.SetLocalizedControlType(go, "tab");
+        // Правый щелчок и клавиша меню: закрепить или открепить.
+        var pinning = new MenuFlyoutItem();
+        pinning.Click += (_, _) => pin();
+        var menu = new MenuFlyout();
+        menu.Items.Add(pinning);
+        menu.Opening += (_, _) =>
+        {
+            pinning.Text = Tab.Pin is null ? "Pin Tab" : "Unpin Tab";
+            pinning.IsEnabled = Tab.Pin is not null || (!Tab.IsBlank && !Tab.IsOwn && !Tab.Private);
+        };
+        go.ContextFlyout = menu;
         Children.Add(go);
 
         // Крестик только под указателем. Заголовок при этом не укорачивается,
@@ -131,14 +151,17 @@ sealed class TabRow : Grid
         Background = ground;
         title.Text = Tab.Label;
         title.Foreground = live ? Palette.Ink : hovering ? Palette.InkSoft : Palette.Muted;
-        title.Margin = new Thickness(0, 0, Tab.Loading ? 28 : 10, 0);
+        title.Margin = new Thickness(0, 0, Tab.Loading || Tab.Private ? 28 : 10, 0);
         mark.Show(Tab.Page, Tab.Monogram);
         // У пустой вкладки буквы нет: заголовок начинается от края.
         mark.Visibility = Tab.IsBlank ? Visibility.Collapsed : Visibility.Visible;
         cover.Background = ground;
-        shut.Visibility = hovering ? Visibility.Visible : Visibility.Collapsed;
+        // У закреплённой крестика нет: её не закрывают, а кладут (Delete, Ctrl+W).
+        shut.Visibility = hovering && Tab.Pin is null ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetHelpText(go, Tab.Pin is null ? "Delete closes the tab" : "Pinned. Delete puts the tab down");
         ring.IsActive = Tab.Loading;
         ring.Visibility = Tab.Loading && !hovering ? Visibility.Visible : Visibility.Collapsed;
+        shy.Visibility = Tab.Private && !Tab.Loading && !hovering ? Visibility.Visible : Visibility.Collapsed;
         AutomationProperties.SetName(go, Tab.Label);
         AutomationProperties.SetName(shut, $"Close {Tab.Label}");
     }

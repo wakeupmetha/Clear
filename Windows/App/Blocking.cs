@@ -42,7 +42,7 @@ static class Blocking
             // Чужой или свой — считается от страницы вкладки, а не от рамки,
             // из которой пришёл запрос: так же, как в правилах WebKit.
             var page = Uri.TryCreate(core.Source, UriKind.Absolute, out var source) ? source.Host : null;
-            if (!Shield.Blocks(request, page)) return;
+            if (!Shield.Blocks(request, page, alone: tab.Private)) return;
             asked.Response = core.Environment.CreateWebResourceResponse(null, 403, "Blocked", "");
             Blocked++;
         };
@@ -58,7 +58,7 @@ static class Blocking
             core.RemoveScriptToExecuteOnDocumentCreated(old);
             tab.ShieldScript = null;
         }
-        if (Shield.Script() is { Length: > 0 } script)
+        if (Shield.Script(alone: tab.Private) is { Length: > 0 } script)
             tab.ShieldScript = await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
     }
 

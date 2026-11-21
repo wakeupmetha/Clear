@@ -13,14 +13,22 @@ sealed class Tab
     /// Пусто у новой вкладки, пока в ней никуда не пошли.
     public string Url = "";
     public string Title = "";
-    /// Эти поля пока только проходят через сессию: закрепление ещё не нарисовано.
+    /// Закреплённая вкладка (Pins.swift): буква и адрес, где её закрепили.
+    /// Имя пока только проходит через сессию.
     public string? Pin, Name, Home;
     public bool Muted;
     public DateTime? Touched;
+    /// Приватная (shy апстрима): имя своего профиля движка в памяти — свои
+    /// куки и входы, — ни истории, ни места в сессии. Не спит и не
+    /// закрепляется: с последним движком профиль пропадает.
+    public string? Shy;
+    public bool Private => Shy is not null;
     public bool Loading;
     /// Последняя навигация удалась. Заголовок страницы об ошибке — не заголовок
     /// сайта, поэтому в историю он не пишется.
     public bool Landed;
+    /// Почему не состоялся последний переход (WebErrorStatus); для тест-канала.
+    public string? Failure;
     /// Null, пока страница спит.
     public WebView2? View;
     /// Своя страница браузера (настройки, история) вместо движка: её рисует оболочка.
@@ -33,6 +41,11 @@ sealed class Tab
     public string? ShieldScript;
     /// Скрипт сочетаний (PageKeys), поставленный на движок этой вкладки.
     public string? KeyScript;
+    /// Последнее нажатие по ссылке средней кнопкой или с Ctrl (PageKeys.Clicked):
+    /// новая вкладка из него — за спиной, с Shift — перед глазами.
+    public (DateTime At, bool Front)? Click;
+    /// Загрузки, которые идут из этой страницы: пока они есть, вкладка не спит.
+    public readonly HashSet<Microsoft.Web.WebView2.Core.CoreWebView2DownloadOperation> Downloads = [];
 
     /// Что-то изменилось в самой вкладке: заголовок, адрес, загрузка.
     public event Action? Changed;
@@ -46,7 +59,7 @@ sealed class Tab
 
     public string Label =>
         Name ?? (Title.Length > 0 ? Title
-            : IsBlank ? "New tab"
+            : IsBlank ? (Private ? "New private tab" : "New tab")
             : Page is { } page ? Own.Title(page) ?? Address.Pretty(page)
             : Url);
 
@@ -89,8 +102,11 @@ sealed class Tabs(Panel stage)
     static Task? ublock;
 
     /// Профиль движка для расширений и очистки: у любой проснувшейся вкладки он один.
-    public Microsoft.Web.WebView2.Core.CoreWebView2Profile? Profile =>
-        All.Select(tab => tab.View?.CoreWebView2).OfType<Microsoft.Web.WebView2.Core.CoreWebView2>().FirstOrDefault()?.Profile;
+    public Microsoft.Web.WebView2.Core.CoreWebView2Profile? Profile => Engine()?.Profile;
+
+    /// Живой движок общего профиля: у приватной вкладки профиль свой.
+    Microsoft.Web.WebView2.Core.CoreWebView2? Engine() =>
+        All.Where(tab => !tab.Private).Select(tab => tab.View?.CoreWebView2).OfType<Microsoft.Web.WebView2.Core.CoreWebView2>().FirstOrDefault();
 
     /// Где были до нынешней вкладки: туда возвращаемся, закрыв пустую.
     Tab? previous;
@@ -114,20 +130,100 @@ sealed class Tabs(Panel stage)
         }
         if (shape.Active >= 0 && shape.Active < All.Count) Select(All[shape.Active]);
         else Open(null);
+        doze.Tick += (_, _) => SleepIdle();
+        Doze();
     }
 
-    public Tab Open(Uri? url, bool select = true)
+    // Сон вкладок (Sleep.swift апстрима): вкладка, на которую давно не
+    // смотрели, отдаёт движок — его процессы и память. Адрес и заголовок
+    // остаются; перейдёшь на неё — проснётся и загрузит страницу заново.
+    // Не спят: вкладка перед глазами, закреплённая (их кладут руками, Ctrl+W;
+    // пространств, где апстрим усыпляет и их, у нас нет), загружающаяся, со
+    // звуком, с загрузкой и с набранным, но не отправленным текстом.
+    // ponytail: просыпается загрузкой адреса — без истории «назад», места
+    // прокрутки и картинки на время загрузки, как в апстриме. Мешает —
+    // хранить это перед сном.
+    readonly DispatcherTimer doze = new();
+    bool dozing;
+
+    static TimeSpan? SleepWait() =>
+        TabSleep.Wait(Settings.Bool("tabs.sleep", true), Settings.Text("tabs.sleep.pace"), Settings.Number("sleep.after"));
+
+    /// Сменили, как скоро спать: смотреть с новым шагом.
+    public void Doze()
+    {
+        doze.Stop();
+        doze.Interval = TabSleep.Every(SleepWait());
+        doze.Start();
+    }
+
+    async void SleepIdle()
+    {
+        if (dozing || SleepWait() is not { } wait) return;
+        dozing = true;
+        try
+        {
+            // Дольше всех оставленные — первыми, по одной: каждую сперва спрашиваем.
+            var idle = All.Where(tab => tab != Live && tab.Pin is null && !tab.Private && tab.View?.CoreWebView2 is not null && !tab.Loading
+                && TabSleep.Due(tab.Touched, DateTime.UtcNow, wait)).OrderBy(tab => tab.Touched).ToList();
+            foreach (var tab in idle)
+            {
+                if (await Busy(tab)) continue;
+                // Пока спрашивали, на вкладку могли перейти или закрыть её.
+                if (tab == Live || !All.Contains(tab) || tab.Loading || !TabSleep.Due(tab.Touched, DateTime.UtcNow, wait)) continue;
+                Strip(tab);
+                tab.Notify();
+            }
+        }
+        finally { dozing = false; }
+    }
+
+    /// Занята ли страница тем, что сон оборвал бы. Не ответила за 3 с — занята:
+    /// лучше не усыпить, чем потерять набранное.
+    static async Task<bool> Busy(Tab tab)
+    {
+        if (tab.View?.CoreWebView2 is not { } core) return true;
+        if (core.IsDocumentPlayingAudio || tab.Downloads.Count > 0) return true;
+        try
+        {
+            var asked = core.ExecuteScriptAsync(Unsaved).AsTask();
+            if (await Task.WhenAny(asked, Task.Delay(3000)) != asked) return true;
+            return await asked != "false";
+        }
+        // Движок ушёл, пока спрашивали.
+        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException) { return true; }
+    }
+
+    /// Набранное и не отправленное: поля, как в апстриме (Forms.swift, unsaved).
+    // ponytail: апстрим считает только поля, в которые печатали; здесь — любое
+    // редактируемое с текстом, поэтому редактор документа не уснёт вовсе. И
+    // только сама страница, без рамок. Мешает — следить за вводом скриптом.
+    const string Unsaved = """
+        (() => {
+          for (const el of document.querySelectorAll('textarea, input, [contenteditable]')) {
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'input' && !['text', 'email', 'url', 'tel', 'number'].includes((el.type || 'text').toLowerCase())) continue;
+            if (tag === 'input' || tag === 'textarea') { if (el.value.trim() && el.value !== el.defaultValue) return true; }
+            else if (el.isContentEditable && el.textContent.trim()) return true;
+          }
+          return false;
+        })()
+        """;
+
+    /// shy — профиль приватной вкладки, из которой открыли ссылку: новая
+    /// вкладка тоже приватная и входы у неё те же, как в апстриме.
+    public Tab Open(Uri? url, bool select = true, string? shy = null)
     {
         // Пустая вкладка одна: Ctrl+T и «New tab» при уже открытой пустой ведут
         // в неё, а не копят ряд одинаковых (как newTab в Browser.swift).
-        if (url is null && All.LastOrDefault(tab => tab.IsBlank) is { } blank)
+        if (url is null && All.LastOrDefault(tab => tab.IsBlank && !tab.Private) is { } blank)
         {
             if (select) Select(blank);
             // Поле в пустой вкладке открывается заново, даже если она уже живая.
             Changed?.Invoke();
             return blank;
         }
-        var tab = new Tab { Url = url?.AbsoluteUri ?? "" };
+        var tab = new Tab { Url = url?.AbsoluteUri ?? "", Shy = shy };
         All.Add(tab);
         if (select) Select(tab);
         else
@@ -136,6 +232,51 @@ sealed class Tabs(Panel stage)
             Changed?.Invoke();
         }
         return tab;
+    }
+
+    /// Ссылки, открытые за спиной из одной страницы подряд, встают за ней по
+    /// порядку (linkRun апстрима). Переход на другую вкладку ряд заканчивает.
+    (Tab Opener, Tab Last)? run;
+
+    /// Вкладка для ссылки со страницы (placeForLink апстрима): рядом с открывшей,
+    /// после ссылок, уже открытых из неё за спиной, не перед закреплёнными.
+    /// Приватная открывает приватную, с теми же входами.
+    Tab OpenLink(Uri url, Tab opener, bool front)
+    {
+        var here = All.IndexOf(opener);
+        var anchor = run is { } open && open.Opener == opener && All.IndexOf(open.Last) is var last && last > here ? last : here;
+        var tab = new Tab { Url = url.AbsoluteUri, Shy = opener.Shy };
+        All.Insert(Math.Max(anchor + 1, All.Count(other => other.Pin is not null)), tab);
+        if (front)
+        {
+            Select(tab);
+            return tab;
+        }
+        run = (opener, tab);
+        Save();
+        Changed?.Invoke();
+        return tab;
+    }
+
+    /// Ctrl+Shift+N (newShyTab апстрима): пустая приватная вкладка, тоже одна.
+    public Tab OpenPrivate()
+    {
+        var tab = All.LastOrDefault(tab => tab.IsBlank && tab.Private);
+        if (tab is null) All.Add(tab = new Tab { Shy = NewShy() });
+        Select(tab);
+        // Поле в пустой вкладке открывается заново, даже если она уже живая.
+        Changed?.Invoke();
+        return tab;
+    }
+
+    static string NewShy() => "private-" + Guid.NewGuid().ToString("N");
+
+    /// Окно закрывается: приватные профили стираются (см. Strip).
+    public void Forget()
+    {
+        foreach (var core in All.Where(tab => tab.Private).GroupBy(tab => tab.Shy)
+            .Select(same => same.Select(tab => tab.View?.CoreWebView2).FirstOrDefault(core => core is not null)).OfType<Microsoft.Web.WebView2.Core.CoreWebView2>())
+            core.Profile.Delete();
     }
 
     /// В живую вкладку, а если её нет — в новую.
@@ -164,7 +305,7 @@ sealed class Tabs(Panel stage)
         tab.Loading = !tab.IsOwn;
         if (tab.Shown is null) Wake(tab);
         else tab.View?.CoreWebView2?.Navigate(tab.Url);   // если движок ещё не готов, Wake пойдёт по tab.Url сам
-        tab.View?.Focus(FocusState.Programmatic);
+        Face(tab);
         tab.Notify();
         Save();
         Changed?.Invoke();
@@ -189,8 +330,15 @@ sealed class Tabs(Panel stage)
             // что вкладка уже не его. В обратном порядке окно падало, если
             // вкладку закрывали сразу после открытия.
             tab.View = null;
-            stage.Children.Remove(view);
-            view.Close();
+            // Файлы ещё идут: движок уходит со страницы, но живёт скрытым, пока
+            // они не дойдут. Файл движок докачал бы и без него, но о том, что
+            // дошёл, сказать было бы некому — строка в загрузках замерла бы.
+            var going = tab.Downloads.ToList();
+            if (going.Count > 0) Park(view, going, tab.Shy);
+            else Retire(view, tab.Shy);
+            // Скрипты стояли на ушедшем движке: новому их ставят заново.
+            tab.KeyScript = tab.ShieldScript = null;
+            tab.Downloads.Clear();
         }
         if (tab.Sheet is { } sheet)
         {
@@ -199,28 +347,95 @@ sealed class Tabs(Panel stage)
         }
     }
 
+    /// Движки закрытых вкладок, которые ещё качают файлы, и чей приватный профиль.
+    readonly Dictionary<WebView2, string?> parked = [];
+
+    // ponytail: приостановленный файл держит движок до отмены или выхода; при
+    // выходе идущие файлы обрываются без вопроса. Мешает — спросить, как Chrome.
+    void Park(WebView2 view, List<Microsoft.Web.WebView2.Core.CoreWebView2DownloadOperation> going, string? shy)
+    {
+        view.Visibility = Visibility.Collapsed;
+        parked[view] = shy;
+        foreach (var download in going)
+            download.StateChanged += (_, _) =>
+            {
+                if (!parked.ContainsKey(view) || going.Any(left => left.State == Microsoft.Web.WebView2.Core.CoreWebView2DownloadState.InProgress
+                    || (left.State == Microsoft.Web.WebView2.Core.CoreWebView2DownloadState.Interrupted && left.CanResume))) return;
+                parked.Remove(view);
+                Retire(view, shy);
+            };
+    }
+
+    void Retire(WebView2 view, string? shy)
+    {
+        stage.Children.Remove(view);
+        // Последний движок приватного профиля: папку профиля движок заводит
+        // и для InPrivate — без адресов и куки, но по одной на вкладку, и
+        // они копились бы. Стираем профиль; вкладка, оставшаяся без
+        // движка (ушла на свою страницу), получит новый.
+        if (shy is not null && view.CoreWebView2 is { } own
+            && !All.Any(other => other.Shy == shy && other.View is not null) && !parked.ContainsValue(shy))
+        {
+            own.Profile.Delete();
+            foreach (var other in All)
+                if (other.Shy == shy) other.Shy = NewShy();
+        }
+        view.Close();
+    }
+
     public void Select(Tab tab)
     {
         if (Live == tab) return;
+        run = null;
         if (Live is { } left)
         {
             left.Touched = DateTime.UtcNow;
             previous = left;
+            // Страница во весь экран выходит из него, когда уходят на другую
+            // вкладку, как в Chrome: иначе окно снова встало бы во весь экран по возвращении.
+            if (left.View?.CoreWebView2 is { ContainsFullScreenElement: true } full) _ = full.ExecuteScriptAsync("document.exitFullscreen()");
         }
         Live = tab;
         Wake(tab);
         foreach (var other in All)
             if (other.Shown is { } shown) shown.Visibility = other == tab ? Visibility.Visible : Visibility.Collapsed;
-        tab.View?.Focus(FocusState.Programmatic);
+        Face(tab);
         Save();
         Changed?.Invoke();
+    }
+
+    /// Фокус — открытой странице: сайту — движок, своей странице — её первый
+    /// элемент (у истории и закладок это поле поиска, как в апстриме). Иначе
+    /// фокус спрятанной своей страницы падал на кнопку колонки с рамкой (задача 18).
+    // ponytail: у пустой страницы загрузок нечего взять в фокус — он падает в
+    // колонку, как раньше. Мешает — сделать саму страницу остановкой Tab.
+    public void Face(Tab tab)
+    {
+        if (tab.View is { } view) { view.Focus(FocusState.Programmatic); return; }
+        if (tab.Sheet is not { } sheet) return;
+        // Только что созданная страница ещё без разметки: её элементы фокус не
+        // примут до прохода разметки, а ждать Loaded нельзя — тогда она отняла
+        // бы фокус у строки колонки, которую поставил Delete (MainWindow.Drop).
+        if (!sheet.IsLoaded) sheet.UpdateLayout();
+        if (FocusManager.FindFirstFocusableElement(sheet) is UIElement first) first.Focus(FocusState.Programmatic);
     }
 
     public void Close(Tab tab)
     {
         var index = All.IndexOf(tab);
         if (index < 0) return;
+        if (tab.Pin is not null)
+        {
+            PutDown(tab);
+            return;
+        }
         All.RemoveAt(index);
+        // Пустую и приватную не помним, как апстрим (remember в Browser.swift).
+        if (!tab.IsBlank && !tab.Private)
+        {
+            closed.Add((tab.Url, tab.Title, index, tab.Muted));
+            if (closed.Count > 12) closed.RemoveAt(0);
+        }
         Strip(tab);
         if (previous == tab) previous = null;
 
@@ -252,6 +467,78 @@ sealed class Tabs(Panel stage)
         Changed?.Invoke();
     }
 
+    /// Закрытые вкладки, последняя в конце: Ctrl+Shift+T возвращает их по одной
+    /// (ghosts апстрима). Двенадцать шагов назад, только на этот сеанс.
+    // ponytail: без истории «назад» и места прокрутки (keepsake апстрима):
+    // вкладка возвращается загрузкой адреса. Мешает — хранить их при закрытии.
+    readonly List<(string Url, string Title, int Index, bool Muted)> closed = [];
+
+    /// Ctrl+Shift+T: последняя закрытая — на своё место и перед глаза.
+    public void Reopen()
+    {
+        if (closed.Count == 0) return;
+        var (url, title, index, muted) = closed[^1];
+        closed.RemoveAt(closed.Count - 1);
+        // Своя страница в окне одна: через Show, как по её сочетанию.
+        if (Uri.TryCreate(url, UriKind.Absolute, out var page) && Own.Is(page))
+        {
+            Show(page);
+            return;
+        }
+        var tab = new Tab { Url = url, Title = title, Muted = muted };
+        // Не перед закреплёнными: их ряд в начале колонки не двигается.
+        All.Insert(Math.Clamp(index, All.Count(other => other.Pin is not null), All.Count), tab);
+        Select(tab);
+    }
+
+    /// Закрепить (Browser.pin апстрима): вкладка встаёт за последней
+    /// закреплённой — их буквы не двигаются под рукой; буква — первая буква
+    /// сайта, дом — нынешний адрес. Пустую и свою страницу не закрепляют.
+    public void Pin(Tab tab)
+    {
+        if (tab.Pin is not null || tab.IsBlank || tab.IsOwn || tab.Private) return;
+        tab.Pin = tab.Monogram is { Length: > 0 } letter ? letter : "•";
+        tab.Home = tab.Url;
+        Move(tab, All.Count(other => other.Pin is not null && other != tab));
+    }
+
+    /// Открепить: в начало незакреплённых.
+    public void Unpin(Tab tab)
+    {
+        if (tab.Pin is null) return;
+        tab.Pin = tab.Home = null;
+        Move(tab, All.Count(other => other.Pin is not null && other != tab));
+    }
+
+    void Move(Tab tab, int place)
+    {
+        All.Remove(tab);
+        All.Insert(place, tab);
+        tab.Notify();
+        Save();
+        Changed?.Invoke();
+    }
+
+    /// Закреплённую не закрывают, а кладут (Browser.swift, close): место и
+    /// буква остаются, страница отдаётся, а мы возвращаемся, где были.
+    // ponytail: кладётся на том адресе, где была, — «домой» (pinsGoHome
+    // апстрима) не возвращается. Понадобится — Go(Home) перед Strip.
+    void PutDown(Tab tab)
+    {
+        if (Live == tab)
+        {
+            var back = previous is { } before && before != tab && All.Contains(before) ? before
+                : All.FirstOrDefault(other => other != tab && other.Pin is null) ?? All.FirstOrDefault(other => other != tab);
+            if (back is null) Open(null);
+            else Select(back);
+        }
+        Strip(tab);
+        tab.Loading = false;
+        tab.Notify();
+        Save();
+        Changed?.Invoke();
+    }
+
     public void Step(int by)
     {
         if (Live is null || All.Count < 2) return;
@@ -264,22 +551,12 @@ sealed class Tabs(Panel stage)
     public void Forward() { if (CanGoForward) Live!.View!.CoreWebView2.GoForward(); }
     public void Reload() => Live?.View?.CoreWebView2?.Reload();
 
-    // Печать, DevTools и список загрузок движок открывает сам по своим клавишам,
-    // но только пока фокус внутри страницы. Из адресной строки и колонки вкладок
-    // эти клавиши до движка не доходят, поэтому оболочка берёт их на себя.
+    // Печать и DevTools движок открывает сам по своим клавишам, но только пока
+    // фокус внутри страницы. Из адресной строки и колонки вкладок эти клавиши
+    // до движка не доходят, поэтому оболочка берёт их на себя.
     // Browser: диалог печати самого браузера, как у Ctrl+P в движке (второй вид — системный).
     public void Print() => Live?.View?.CoreWebView2?.ShowPrintUI(Microsoft.Web.WebView2.Core.CoreWebView2PrintDialogKind.Browser);
     public void Inspect() => Live?.View?.CoreWebView2?.OpenDevToolsWindow();
-
-    public bool Downloads()
-    {
-        if (Live?.View?.CoreWebView2 is not { } engine) return false;
-        // Свойство движка меняется не сразу после вызова: отвечаем тем, что попросили.
-        var open = !engine.IsDefaultDownloadDialogOpen;
-        if (open) engine.OpenDefaultDownloadDialog();
-        else engine.CloseDefaultDownloadDialog();
-        return open;
-    }
 
     bool dark;
 
@@ -311,6 +588,8 @@ sealed class Tabs(Panel stage)
         // contacts.fill в апстриме выключен, потому что macOS спрашивает про
         // Контакты; здесь спрашивать некого, и движок по умолчанию заполняет.
         profile.IsGeneralAutofillEnabled = Settings.Bool("contacts.fill", true);
+        // В тестовом мире файлы ложатся в его папку, а не в Загрузки человека.
+        if (Store.Testing) profile.DefaultDownloadFolderPath = Path.Combine(Store.Folder, "Downloads");
     }
 
     /// Настройку движка сменили: применить ко всем живым движкам. Профиль у
@@ -324,8 +603,8 @@ sealed class Tabs(Panel stage)
     /// now — при выходе: сессия, отданная фоновой очереди, может не дойти до диска.
     public void Save(bool now = false)
     {
-        // Пустая вкладка — не место, куда возвращаются.
-        var kept = All.Where(tab => !tab.IsBlank).ToList();
+        // Пустая вкладка — не место, куда возвращаются; приватная не оставляет следа.
+        var kept = All.Where(tab => !tab.IsBlank && !tab.Private).ToList();
         Session.Write(new Session.Shape
         {
             Tabs = kept.Select(tab => new Session.Entry
@@ -345,7 +624,9 @@ sealed class Tabs(Panel stage)
         {
             // Своей странице движок не нужен.
             tab.Loading = false;
-            tab.Sheet = tab.Url == Own.History.AbsoluteUri ? new HistoryPage(this) : new SettingsPage(this);
+            tab.Sheet = tab.Url == Own.History.AbsoluteUri ? new HistoryPage(this)
+                : tab.Url == Own.Downloads.AbsoluteUri ? new DownloadsPage()
+                : tab.Url == Own.Bookmarks.AbsoluteUri ? new BookmarksPage(this) : new SettingsPage(this);
             stage.Children.Add(tab.Sheet);
             return;
         }
@@ -356,7 +637,18 @@ sealed class Tabs(Panel stage)
         stage.Children.Add(view);
         try
         {
-            await view.EnsureCoreWebView2Async(await Shared());
+            var environment = await Shared();
+            if (tab.Private)
+            {
+                // Свой профиль в памяти на каждую приватную вкладку (и на те,
+                // что открыты из неё): у двух приватных куки и входы разные,
+                // как в апстриме.
+                var options = environment.CreateCoreWebView2ControllerOptions();
+                options.IsInPrivateModeEnabled = true;
+                options.ProfileName = tab.Shy;
+                await view.EnsureCoreWebView2Async(environment, options);
+            }
+            else await view.EnsureCoreWebView2Async(environment);
         }
         catch (Exception e)
         {
@@ -373,6 +665,15 @@ sealed class Tabs(Panel stage)
         Dress(view);
         // Переход, начатый последним: конец прежнего, отменённого новым, вкладку не трогает.
         ulong going = 0;
+        // Оборванный первый переход движка повторяем один раз: в свежем профиле
+        // с только что поставленным uBlock Chromium обрывает первый заход на
+        // Chrome Web Store (ConnectionAborted), повтор проходит (задача 19).
+        // Так же обрывается переход, ставший загрузкой, а DownloadStarting
+        // приходит уже после конца перехода: повтор той загрузки отменяем там.
+        // ponytail: файл, открытый в новой вкладке, запрашивается дважды (второй
+        // раз — до заголовков). Мешает — отличать срыв магазина от загрузки иначе.
+        bool retried = false;
+        int echoes = 0;
         core.NavigationStarting += (_, start) =>
         {
             going = start.NavigationId;
@@ -384,14 +685,22 @@ sealed class Tabs(Panel stage)
         core.NavigationCompleted += (_, done) =>
         {
             tab.Landed = done.IsSuccess;
+            tab.Failure = done.IsSuccess ? null : $"{done.WebErrorStatus}, {core.Source}";
             tab.Loading = false;
             if (done.IsSuccess)
             {
                 // Заголовок берём и здесь: у новой страницы с тем же
                 // заголовком, что у прежней, событие о его смене не приходит.
                 tab.Title = Titled(core);
-                if (Uri.TryCreate(core.Source, UriKind.Absolute, out var page)) History.Record(page, tab.Title);
+                if (!tab.Private && Uri.TryCreate(core.Source, UriKind.Absolute, out var page)) History.Record(page, tab.Title);
                 Save();
+            }
+            else if (done.NavigationId == going && !retried && core.Source == "about:blank"
+                && done.WebErrorStatus == Microsoft.Web.WebView2.Core.CoreWebView2WebErrorStatus.ConnectionAborted)
+            {
+                retried = true;
+                core.Navigate(tab.Url);
+                return;
             }
             else if (done.NavigationId == going && !Same(core.Source, tab.Url))
             {
@@ -418,18 +727,21 @@ sealed class Tabs(Panel stage)
         core.DocumentTitleChanged += (_, _) =>
         {
             tab.Title = Titled(core);
-            if (tab.Landed && Uri.TryCreate(core.Source, UriKind.Absolute, out var page)) History.Retitle(page, tab.Title);
+            if (tab.Landed && !tab.Private && Uri.TryCreate(core.Source, UriKind.Absolute, out var page)) History.Retitle(page, tab.Title);
             tab.Notify();
             Save();
             if (tab == Live) Changed?.Invoke();
         };
         // Назад и вперёд зажигаются и гаснут вместе с историей страницы.
         core.HistoryChanged += (_, _) => { if (tab == Live) Changed?.Invoke(); };
+        // Видео во весь экран: окно следует за живой вкладкой (MainWindow.Immerse).
+        core.ContainsFullScreenElementChanged += (_, _) => { if (tab == Live) Changed?.Invoke(); };
         // Значок, который объявила страница, движок уже скачал: кладём его в
         // запас, и знаки сайта во вкладках, истории и подсказках надевают его.
         core.FaviconChanged += async (_, _) =>
         {
-            if (!Uri.TryCreate(core.Source, UriKind.Absolute, out var page) || Icons.Site(page) is not { } site
+            // Приватная значков на диск не кладёт.
+            if (tab.Private || !Uri.TryCreate(core.Source, UriKind.Absolute, out var page) || Icons.Site(page) is not { } site
                 || string.IsNullOrEmpty(core.FaviconUri)) return;
             try
             {
@@ -452,8 +764,14 @@ sealed class Tabs(Panel stage)
         core.NewWindowRequested += (_, asked) =>
         {
             asked.Handled = true;
-            if (asked.IsUserInitiated && Uri.TryCreate(asked.Uri, UriKind.Absolute, out var wanted) && !Own.Is(wanted))
-                Open(wanted);
+            if (!asked.IsUserInitiated || !Uri.TryCreate(asked.Uri, UriKind.Absolute, out var wanted) || Own.Is(wanted)) return;
+            // Средняя кнопка или Ctrl — за спиной, с Shift — перед глазами;
+            // обычный щелчок (target="_blank") — перед глазами. Как давно было
+            // нажатие, смотрим, чтобы старое не решило за новое окно.
+            // ponytail: нажатие держат дольше двух секунд — вкладка встанет перед глазами.
+            var behind = tab.Click is { Front: false } click && DateTime.UtcNow - click.At < TimeSpan.FromSeconds(2);
+            tab.Click = null;
+            OpenLink(wanted, tab, front: !behind);
         };
         // Сочетания окна, нажатые в странице: до сочетаний окна они не доходят,
         // их сообщает скрипт страницы (PageKeys). Из рамок — тоже: фокус бывает
@@ -466,17 +784,46 @@ sealed class Tabs(Panel stage)
             try { text = said.TryGetWebMessageAsString(); }
             catch (ArgumentException) { return; }   // не строка — не наше
             if (tab == Live && PageKeys.Read(text, KeyToken) is { } key) Pressed?.Invoke(key);
+            else if (PageKeys.Clicked(text, KeyToken) is { } front) tab.Click = (DateTime.UtcNow, front);
         }
         // Ctrl+W в странице движок делает сам (раз мы принимаем NewWindowRequested)
         // и просит закрыть окно; так же — window.close() страницы, которой Chrome
         // разрешил бы закрыться: открытой самой страницей или с одной записью в
         // истории. Окно у нас — вкладка.
         core.WindowCloseRequested += (_, _) => { if (tab.View == view) Close(tab); };
+        // Загрузка живёт в движке страницы: пока она идёт или стоит на паузе,
+        // вкладка не спит. Окошко движка не показываем: список — своя страница.
+        core.DownloadStarting += (_, start) =>
+        {
+            start.Handled = true;
+            var download = start.DownloadOperation;
+            // Вторая загрузка после повтора, пока у движка нет страницы, — та же
+            // самая, начатая повтором. Не по адресу: у ссылок на файл с подписью
+            // он от запроса к запросу разный.
+            if (retried && core.Source == "about:blank" && ++echoes == 2) { start.Cancel = true; return; }
+            tab.Downloads.Add(download);
+            Fetching.Watch(download, tab);
+            download.StateChanged += (_, _) =>
+            {
+                if (download.State == Microsoft.Web.WebView2.Core.CoreWebView2DownloadState.Completed
+                    || (download.State == Microsoft.Web.WebView2.Core.CoreWebView2DownloadState.Interrupted && !download.CanResume))
+                    tab.Downloads.Remove(download);
+            };
+        };
+        // Ctrl+J в странице движок ловит сам и открывает своё окошко: вместо
+        // него — своя страница.
+        core.IsDefaultDownloadDialogOpenChanged += (_, _) =>
+        {
+            if (!core.IsDefaultDownloadDialogOpen) return;
+            core.CloseDefaultDownloadDialog();
+            Show(Own.Downloads);
+        };
         core.WebMessageReceived += (_, said) => Heard(said);
         core.FrameCreated += (_, made) => made.Frame.WebMessageReceived += (_, said) => Heard(said);
         await Rekey(tab, core);
         if (tab.View != view) return;
-        await (ublock ??= UBlock.Ensure(core.Profile));
+        // uBlock живёт в общем профиле; в приватной его нет — там работает свой список.
+        if (!tab.Private) await (ublock ??= UBlock.Ensure(core.Profile));
         if (tab.View != view) return;
         // Защита ставится до первой загрузки, а не вдогонку ей.
         await Blocking.Protect(tab, core);
@@ -539,7 +886,7 @@ sealed class Tabs(Panel stage)
     /// может быть и не тот, что открыт в этом движке.
     public async Task WithEngine(Func<Microsoft.Web.WebView2.Core.CoreWebView2, Task> act)
     {
-        if (All.Select(tab => tab.View?.CoreWebView2).OfType<Microsoft.Web.WebView2.Core.CoreWebView2>().FirstOrDefault() is { } live)
+        if (Engine() is { } live)
         {
             await act(live);
             return;

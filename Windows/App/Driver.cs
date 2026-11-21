@@ -76,7 +76,7 @@ sealed partial class MainWindow
         JsonNode Describe(Control control) => new JsonObject
         {
             ["name"] = Called(control), ["kind"] = control.GetType().Name,
-            ["on"] = (control as ToggleButton)?.IsChecked,
+            ["on"] = (control as ToggleButton)?.IsChecked, ["enabled"] = control.IsEnabled,
             ["text"] = control is TextBox box ? box.Text : string.Join(" ", Within(control).OfType<TextBlock>().Select(word => word.Text)),
         };
         // Своя страница первой: её имена могут совпасть с именами полосы.
@@ -91,13 +91,16 @@ sealed partial class MainWindow
                 return new JsonArray(tabs.All.Select(tab => (JsonNode)new JsonObject
                 {
                     ["id"] = tab.Id.ToString(), ["url"] = tab.Url, ["title"] = tab.Title,
-                    ["live"] = tab == tabs.Live, ["asleep"] = tab.View is null, ["loading"] = tab.Loading,
+                    ["live"] = tab == tabs.Live, ["asleep"] = tab.View is null, ["loading"] = tab.Loading, ["pin"] = tab.Pin, ["private"] = tab.Private, ["failure"] = tab.Failure,
                 }).ToArray());
             case "open":
                 return new JsonObject { ["id"] = tabs.Open(new Uri(Text("url")), select: !Flag("behind")).Id.ToString() };
             case "new":
                 // Как Ctrl+T: пустая вкладка с полем.
                 return new JsonObject { ["id"] = tabs.Open(null).Id.ToString() };
+            case "private":
+                // Как Ctrl+Shift+N: пустая приватная вкладка с полем.
+                return new JsonObject { ["id"] = tabs.OpenPrivate().Id.ToString() };
             case "go":
                 // Как набранное в поле и Enter.
                 if (Tabs.Destination(Text("text")) is not { } destination) throw new ArgumentException("goes nowhere");
@@ -189,6 +192,7 @@ sealed partial class MainWindow
                 var value = request.GetProperty("value");
                 if (value.ValueKind == JsonValueKind.String) Settings.Set(Text("key"), value.GetString() ?? "");
                 else if (value.ValueKind is JsonValueKind.True or JsonValueKind.False) Settings.Set(Text("key"), value.GetBoolean());
+                else if (value.ValueKind == JsonValueKind.Number) Settings.Set(Text("key"), value.GetDouble());
                 else Settings.Remove(Text("key"));
                 return new JsonObject();
             }
@@ -219,6 +223,13 @@ sealed partial class MainWindow
                 // (shift — Shift+щелчок), all — Ctrl+A, none — Esc.
                 if (tabs.Live?.Sheet is not HistoryPage list) throw new ArgumentException("history is not shown");
                 return new JsonObject { ["chosen"] = list.Choose(request.TryGetProperty("name", out var name) ? name.GetString() : null, Flag("shift"), Flag("all"), Flag("none")) };
+            case "menu":
+            {
+                // Как правый щелчок по названному элементу: его меню.
+                var control = Control(Text("name"));
+                (control.ContextFlyout ?? throw new ArgumentException("no menu")).ShowAt(control);
+                return new JsonObject();
+            }
             case "dismiss":
                 // Как нажатие мимо открытого меню: проверка не оставляет его
                 // висеть поверх окон человека.
@@ -280,8 +291,30 @@ sealed partial class MainWindow
                 tabs.Print();
                 return new JsonObject();
             case "downloads":
-                // Как Ctrl+J: вернуть, открыт ли теперь список загрузок.
-                return new JsonObject { ["open"] = tabs.Downloads() };
+            {
+                // Как Ctrl+J; в ответе — идущие загрузки и список скачанного.
+                tabs.Show(Own.Downloads);
+                var active = new JsonArray();
+                foreach (var entry in Fetching.Active)
+                    active.Add(new JsonObject
+                    {
+                        ["name"] = entry.Name, ["from"] = entry.From, ["progress"] = entry.Progress,
+                        ["paused"] = entry.Paused, ["failed"] = entry.Failed,
+                    });
+                var kept = new JsonArray();
+                foreach (var keep in Downloads.Kept)
+                    kept.Add(new JsonObject { ["name"] = keep.Name, ["from"] = keep.From, ["path"] = keep.Path, ["address"] = keep.Address });
+                return new JsonObject { ["id"] = tabs.Live?.Id.ToString(), ["active"] = active, ["kept"] = kept };
+            }
+            case "bookmarks":
+            {
+                // Страница закладок; в ответе — все сайты по порядку, с папками.
+                tabs.Show(Own.Bookmarks);
+                var sites = new JsonArray();
+                foreach (var (node, path) in Bookmarks.Sites())
+                    sites.Add(new JsonObject { ["title"] = node.Title, ["url"] = node.Url, ["path"] = string.Join("/", path) });
+                return new JsonObject { ["id"] = tabs.Live?.Id.ToString(), ["sites"] = sites };
+            }
             case "extension":
             {
                 // Поставить распакованное расширение из папки тем же путём, что
@@ -324,7 +357,9 @@ sealed partial class MainWindow
                     ["caption"] = new JsonArray([.. (InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
                         .GetRegionRects(NonClientRegionKind.Caption) ?? []).Select(hole => (JsonNode)new JsonArray(hole.X, hole.Y, hole.Width, hole.Height))]),
                     ["buttons"] = AppWindow.TitleBar.PreferredHeightOption != Microsoft.UI.Windowing.TitleBarHeightOption.Collapsed,
-                    ["focused"] = focused, ["crowned"] = crowned,
+                    ["focused"] = focused, ["crowned"] = crowned, ["immersed"] = immersed,
+                    // Где фокус с клавиатуры: имя элемента, его вид и как фокус туда попал.
+                    ["at"] = FocusManager.GetFocusedElement(root.XamlRoot) is Control at ? $"{Called(at)} | {at.GetType().Name} | {at.FocusState}" : null,
                     // Номер процесса: bench.py stop закрывает по нему окно штатно.
                     ["pid"] = Environment.ProcessId,
                     // Настройки движка, как их видит профиль первого живого движка.

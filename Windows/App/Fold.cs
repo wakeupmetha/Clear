@@ -90,7 +90,7 @@ sealed partial class MainWindow
     void Reveal()
     {
         // В режиме фокуса колонка спрятана, даже если не сложена (Focus).
-        if (!(folded || focused) || revealed) return;
+        if (immersed || !(folded || focused) || revealed) return;
         revealed = true;
         Arrange();
         Slide(-Metrics.Side, 0, 160);
@@ -106,11 +106,15 @@ sealed partial class MainWindow
     /// Раскладка по нынешнему состоянию, без движения.
     void Arrange()
     {
-        var docked = !folded && !focused;
+        var docked = !folded && !focused && !immersed;
         side.Width = new GridLength(docked ? Metrics.Side : 0);
         // Сложена — страница берёт всё окно и отступает от левого края так же,
-        // как от остальных; в режиме фокуса — и от верхнего.
-        card.Margin = new Thickness(docked ? 0 : Metrics.CardGap, focused ? Metrics.CardGap : 0, Metrics.CardGap, Metrics.CardGap);
+        // как от остальных; в режиме фокуса — и от верхнего. Во весь экран —
+        // без отступов, углов и края.
+        card.Margin = immersed ? new Thickness(0)
+            : new Thickness(docked ? 0 : Metrics.CardGap, focused ? Metrics.CardGap : 0, Metrics.CardGap, Metrics.CardGap);
+        card.CornerRadius = new CornerRadius(immersed ? 0 : Metrics.CardRadius);
+        card.BorderThickness = new Thickness(immersed ? 0 : 1);
         panel.Visibility = docked || revealed ? Visibility.Visible : Visibility.Collapsed;
         // Поверх страницы колонка лежит на своём фоне: с краем и тенью.
         panel.BorderThickness = new Thickness(0, 0, revealed ? 1 : 0, 0);

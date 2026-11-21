@@ -23,6 +23,14 @@ static class PageKeysTests
         Check.Expect(Shortcuts.Page().All(page => script.Contains($"\"{page.Name}\"")), "все сочетания страницы есть в скрипте");
         Check.Expect(script.Contains("e.isTrusted"), "скрипт берёт только настоящие нажатия");
 
+        // Нажатие по ссылке: за спиной или перед глазами, только с меткой сеанса.
+        Check.Expect(PageKeys.Clicked(token + ":click:behind", token) == false && PageKeys.Clicked(token + ":click:front", token) == true,
+            "средняя кнопка — за спиной, с Shift — перед глазами");
+        Check.Expect(PageKeys.Clicked("ffffffffffffffffffffffffffffffff:click:behind", token) is null && PageKeys.Clicked("click:behind", token) is null
+            && PageKeys.Clicked(token + ":click:aside", token) is null && PageKeys.Clicked(token + ":click:behind", "") is null && PageKeys.Read(token + ":click:behind", token) is null,
+            "чужая метка, без метки, чужое слово, пустая метка — не нажатие; и это не сочетание");
+        Check.Expect(script.Contains($"'{token}:click:'"), "скрипт сообщает о нажатии по ссылке с меткой");
+
         // Переназначенное сочетание: скрипт и разбор его ловят, старое — нет.
         Shortcuts.Assign(Combo.Parse("f2")!, "file.newTab");
         script = PageKeys.Script(token);

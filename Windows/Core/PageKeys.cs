@@ -53,8 +53,25 @@ public static class PageKeys
             prevent.call(e);
             later(() => { if (!taken) post('{{token}}:' + name); }, 0);
           }, true);
+          // Средняя кнопка и Ctrl+щелчок по ссылке: новую вкладку откроет
+          // движок (NewWindowRequested), но за спиной её открыли или перед
+          // глазами, он не говорит. Говорим заранее, на нажатии кнопки (Clicked).
+          window.addEventListener('mousedown', e => {
+            if (!e.isTrusted || !(e.button === 1 || (e.button === 0 && e.ctrlKey))) return;
+            if (!e.composedPath().some(node => node.tagName === 'A' && node.href)) return;
+            post('{{token}}:click:' + (e.shiftKey ? 'front' : 'behind'));
+          }, true);
         })();
         """;
+
+    /// Нажатие по ссылке из сообщения страницы (Script): true — с Shift, новая
+    /// вкладка перед глазами; false — за спиной; null — сообщение не об этом
+    /// или без метки сеанса.
+    public static bool? Clicked(string? message, string token) =>
+        string.IsNullOrEmpty(token) ? null
+        : message == token + ":click:front" ? true
+        : message == token + ":click:behind" ? false
+        : null;
 
     /// Сочетание из сообщения страницы, если оно подписано меткой сеанса и
     /// окно его сейчас ждёт (есть в Shortcuts.Page); иначе null.

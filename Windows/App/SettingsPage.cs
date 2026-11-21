@@ -19,8 +19,8 @@ namespace Browser;
 /// заголовком, в каждой карточка строк; строка — значок в плитке, что это,
 /// одна строка о том, что она делает, и элемент управления справа.
 ///
-/// Разделов слева и поиска по настройкам, как в апстриме, нет: групп пока
-/// десять, они видны все сразу.
+/// Разделы слева, как в апстриме, справа — один раздел. Поиска по настройкам,
+/// как в апстриме, нет: разделов восемь, строк в них немного.
 ///
 /// Страница — только вид на Settings. Элементы пишут туда, а окно, вкладки и
 /// сама страница узнают об изменении из Settings.Changed. Поэтому Ctrl+S при
@@ -43,47 +43,153 @@ sealed class SettingsPage : Grid
         // Узкой держим колонку, а не прокрутку: пустое место по бокам тоже
         // должно прокручивать страницу.
         var column = new StackPanel { MaxWidth = 600, Padding = new Thickness(24, 26, 24, 24), Spacing = 22 };
-        column.Children.Add(Heading(Ui.Gear, "Settings"));
-        column.Children.Add(Group("Appearance", Ui.Colour,
-            Row(Ui.SunMoon, "Appearance", "Light, dark, or as Windows has it. Pages follow too",
-                Choice("Appearance", [("light", "Light"), ("dark", "Dark"), ("system", "System")],
-                    () => Settings.Text("look") is "light" or "dark" ? Settings.Text("look")! : "system",
-                    look => Settings.Set("look", look))),
-            Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; the tabs come out at the left edge" + Keyed("view.fold"),
-                Switch("Fold the tab column", () => Settings.Bool("sidebar.folded"), on => Settings.Set("sidebar.folded", on))),
-            Row(Ui.Focus, "Focus mode", "Only the page: the tabs come out at the left edge, the top bar at the top edge" + Keyed("view.focus"),
-                Switch("Focus mode", () => Settings.Bool("window.focus"), on => Settings.Set("window.focus", on)))));
-        column.Children.Add(Group("Search", Ui.Find,
-            Row(Ui.TextSearch, "Search with", "Where words that aren't an address go", EnginePicker()),
-            CustomEngine()));
-        column.Children.Add(Group("Privacy", Ui.Guard,
-            Row(Ui.ShieldBan, "Block ads and trackers",
-                Shield.Delegated ? "uBlock Origin blocks them, YouTube ads too" : "Third parties whose only job is to watch or to sell",
-                Switch("Block ads and trackers", () => Shield.Enabled, on => Shield.Enabled = on)),
-            // sites.keep — ключ апстрима, и он про обратное: «оставить сайтам входы».
-            Row(Ui.EyeOff, "Prevent cross-site tracking", "The engine's own tracking prevention, balanced as in Edge",
-                Switch("Prevent cross-site tracking", () => !Settings.Bool("sites.keep"), on => Settings.Set("sites.keep", !on))),
-            // С uBlock свой список сайтов не действует: доверенные сайты — в его панели.
-            Shield.Delegated
-                ? Row(Ui.Sliders, "uBlock Origin", "Filter lists, trusted sites, the logger. uBlock Origin 1.76.6, GPLv3",
-                    Pill("Open uBlock Origin settings", Word("Open"), () => { if (UBlock.Dashboard is { } dashboard) tabs.Open(dashboard); }))
-                : PausedSites()));
-        column.Children.Add(Group("Passwords and Forms", Ui.KeyRound, FormRows(tabs)));
-        var (permissions, data) = SiteRows(tabs);
-        column.Children.Add(Group("Site Permissions", Ui.ShieldCheck, permissions));
-        column.Children.Add(Group("Cookies and Site Data", Ui.Cookie, data));
-        column.Children.Add(Group("Keyboard Shortcuts", Ui.Keyboard, ShortcutRows()));
-        column.Children.Add(Group("Extensions", Ui.Puzzle, ExtensionRows(tabs)));
-        column.Children.Add(Group("Engine", Ui.Cpu,
-            Row(Ui.Flask, "Engine experiments", "The engine's own flags page, edge://flags. For testing: a flag can break pages",
-                Pill("Open engine experiments", Word("Open"), () => tabs.Open(new Uri("edge://flags"))))));
-        column.Children.Add(Group("Updates", Ui.Reload, UpdateRow()));
-
-        Children.Add(new ScrollViewer
+        var scroll = new ScrollViewer
         {
             Content = column, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Disabled,
+        };
+        // Ширина явно, как у истории: с одним MaxWidth колонка вставала не по
+        // середине, и у разных разделов — по-разному.
+        scroll.SizeChanged += (_, _) => column.Width = Math.Min(600, scroll.ActualWidth);
+        var (permissions, data) = SiteRows(tabs);
+        var forms = FormRows(tabs);
+        // Разделы, как в апстриме (Settings.swift, Page; просьба владельца
+        // 2026-11-21: «по категориям, как в оригинале»), и только те, где у нас
+        // есть что ставить: General и Spaces & Pins появятся со своими
+        // первыми строками. Блоки рельса — тоже апстрима: браузер, твои данные и
+        // инструменты, About.
+        (string Key, string Title, string Glyph, StackPanel[] Groups)[][] blocks =
+        [
+            [
+                ("appearance", "Appearance", Ui.Colour, [Group("Light and dark", Ui.SunMoon,
+                Row(Ui.SunMoon, "Appearance", "Light, dark, or as Windows has it. Pages follow too",
+                    Choice("Appearance", [("light", "Light"), ("dark", "Dark"), ("system", "System")],
+                        () => Settings.Text("look") is "light" or "dark" ? Settings.Text("look")! : "system",
+                        look => Settings.Set("look", look)))),
+                    Group("Window", Ui.ClosePane,
+                Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; the tabs come out at the left edge" + Keyed("view.fold"),
+                    Switch("Fold the tab column", () => Settings.Bool("sidebar.folded"), on => Settings.Set("sidebar.folded", on))),
+                Row(Ui.Focus, "Focus mode", "Only the page: the tabs come out at the left edge, the top bar at the top edge" + Keyed("view.focus"),
+                    Switch("Focus mode", () => Settings.Bool("window.focus"), on => Settings.Set("window.focus", on))))]),
+                // Сон вкладок: SettingsIndex.swift, tabs.sleep — Never или как скоро.
+                ("tabs", "Tabs", Ui.TwoTabs, [Group("Memory", Ui.Moon,
+                Row(Ui.Moon, "Sleep tabs you aren't using", "A tab left alone lets its page go and loads it again when you go back to it",
+                    Choice("Sleep tabs you aren't using", [("never", "Never"), ("later", "Later"), ("normal", "Normal"), ("sooner", "Sooner")],
+                        () => TabSleep.Choice(Settings.Bool("tabs.sleep", true), Settings.Text("tabs.sleep.pace")),
+                        choice =>
+                        {
+                            if (choice != "never") Settings.Set("tabs.sleep.pace", choice);
+                            Settings.Set("tabs.sleep", choice != "never");
+                        })))]),
+                ("browsing", "Browsing", Ui.Globe, [Group("Searching", Ui.Find,
+                Row(Ui.TextSearch, "Search with", "Where words that aren't an address go", EnginePicker()),
+                CustomEngine())]),
+            ],
+            [
+                ("passwords", "Passwords", Ui.KeyRound, [Group("Your passwords", Ui.KeyRound, forms[0], forms[2]), Group("Filling in forms", Ui.TextCursorInput, forms[1])]),
+                ("privacy", "Privacy", Ui.Guard, [Group("Blocking", Ui.Guard,
+                Row(Ui.ShieldBan, "Block ads and trackers",
+                    Shield.Delegated ? "uBlock Origin blocks them, YouTube ads too" : "Third parties whose only job is to watch or to sell",
+                    Switch("Block ads and trackers", () => Shield.Enabled, on => Shield.Enabled = on)),
+                // sites.keep — ключ апстрима, и он про обратное: «оставить сайтам входы».
+                Row(Ui.EyeOff, "Prevent cross-site tracking", "The engine's own tracking prevention, balanced as in Edge",
+                    Switch("Prevent cross-site tracking", () => !Settings.Bool("sites.keep"), on => Settings.Set("sites.keep", !on))),
+                // С uBlock свой список сайтов не действует: доверенные сайты — в его панели.
+                Shield.Delegated
+                    ? Row(Ui.Sliders, "uBlock Origin", "Filter lists, trusted sites, the logger. uBlock Origin 1.76.6, GPLv3",
+                        Pill("Open uBlock Origin settings", Word("Open"), () => { if (UBlock.Dashboard is { } dashboard) tabs.Open(dashboard); }))
+                    : PausedSites()),
+                    Group("Site Permissions", Ui.ShieldCheck, permissions), Group("Cookies and Site Data", Ui.Cookie, data)]),
+                ("extensions", "Extensions", Ui.Puzzle, [Group("Installed", Ui.Puzzle, ExtensionRows(tabs))]),
+                ("keyboard", "Keyboard", Ui.Keyboard, [Group("Shortcuts", Ui.Keyboard, ShortcutRows())]),
+            ],
+            [
+                ("about", "About", Ui.Info, [Group("Updates", Ui.Reload, UpdateRow()), Group("Developer", Ui.Cpu,
+                Row(Ui.Flask, "Engine experiments", "The engine's own flags page, edge://flags. For testing: a flag can break pages",
+                    Pill("Open engine experiments", Word("Open"), () => tabs.Open(new Uri("edge://flags")))))]),
+            ],
+        ];
+        var sections = blocks.SelectMany(block => block).ToArray();
+
+        // Рельс разделов слева: Settings.swift, pages.
+        var rail = new StackPanel { Width = Metrics.SettingsRail, Padding = new Thickness(8), Spacing = 2, Background = Palette.Hover };
+        rail.Children.Add(new TextBlock
+        {
+            Text = "Settings", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Palette.Ink,
+            Margin = new Thickness(10, 14, 10, 10),
         });
+        var marks = new List<(string Key, RadioButton Option)>();
+        foreach (var block in blocks)
+        {
+            if (marks.Count > 0) rail.Children.Add(new Border { Height = 1, Background = Palette.Hairline, Margin = new Thickness(10, 7, 10, 7) });
+            foreach (var (key, title, glyph, _) in block) marks.Add((key, Section(key, title, glyph)));
+        }
+
+        // Раздел — строка рельса: значок и имя, выбранный — белым, как в апстриме.
+        RadioButton Section(string key, string title, string glyph)
+        {
+            var icon = Ui.Glyph(glyph, 15, Palette.InkSoft);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            var text = new TextBlock { Text = title, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            var plate = new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Spacing = 10, Height = 30, Padding = new Thickness(10, 0, 10, 0),
+                CornerRadius = new CornerRadius(7),
+            };
+            plate.Children.Add(icon);
+            plate.Children.Add(text);
+            var option = Ui.Bare(new RadioButton
+            {
+                GroupName = "Settings section", CornerRadius = new CornerRadius(7), HorizontalAlignment = HorizontalAlignment.Stretch,
+            }, title, plate);
+            var over = false;
+            void Paint()
+            {
+                var on = option.IsChecked == true;
+                plate.Background = on ? Palette.Ground : over ? Palette.Wash : Palette.Clear;
+                text.Foreground = on ? Palette.Ink : Palette.InkSoft;
+                text.FontWeight = on ? FontWeights.Medium : FontWeights.Normal;
+            }
+            option.PointerEntered += (_, _) => { over = true; Paint(); };
+            option.PointerExited += (_, _) => { over = false; Paint(); };
+            option.Checked += (_, _) =>
+            {
+                Paint();
+                if (!following) Settings.Set("settings.page", key);
+            };
+            option.Unchecked += (_, _) => Paint();
+            Paint();
+            rail.Children.Add(option);
+            return option;
+        }
+
+        // Показан раздел из settings.page (ключ апстрима): его ставит рельс, а
+        // проверки — тест-каналом (set). Незнакомый — первый. Группы собраны
+        // один раз, в колонке — только показанный раздел.
+        string? shown = null;
+        follow.Add(() =>
+        {
+            var key = Settings.Text("settings.page");
+            var section = sections.FirstOrDefault(section => section.Key == key);
+            if (section.Key is null) section = sections[0];
+            if (section.Key == shown) return;
+            shown = section.Key;
+            foreach (var (mark, option) in marks) option.IsChecked = mark == shown;
+            column.Children.Clear();
+            column.Children.Add(Heading(section.Glyph, section.Title));
+            foreach (var group in section.Groups) column.Children.Add(group);
+            scroll.ChangeView(null, 0, null, true);
+        });
+
+        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1) });
+        ColumnDefinitions.Add(new ColumnDefinition());
+        Children.Add(rail);
+        var hairline = new Border { Background = Palette.Hairline };
+        SetColumn(hairline, 1);
+        Children.Add(hairline);
+        SetColumn(scroll, 2);
+        Children.Add(scroll);
 
         // Слушаем настройки, только пока страница во вкладке: закрытую вкладку
         // они не должны держать в памяти.
@@ -106,7 +212,7 @@ sealed class SettingsPage : Grid
 
     /// Группа: маленький заголовок со значком и под ним карточка строк.
     /// GroupBlock и Card из апстрима.
-    static StackPanel Group(string title, string glyph, params StackPanel[] rows)
+    internal static StackPanel Group(string title, string glyph, params StackPanel[] rows)
     {
         // Первая строка карточки начинается без черты над собой.
         rows[0].Children[0].Visibility = Visibility.Collapsed;
@@ -136,7 +242,7 @@ sealed class SettingsPage : Grid
     /// Одна настройка. Широкий элемент (список, поле) встаёт под словами.
     /// Первым в строке идёт черта, отделяющая её от предыдущей: спрятанная
     /// строка уносит свою черту с собой. SettingRow из апстрима.
-    static StackPanel Row(string glyph, string title, string detail, UIElement? control = null, UIElement? under = null)
+    internal static StackPanel Row(string glyph, string title, string detail, UIElement? control = null, UIElement? under = null)
     {
         var grid = new Grid { Padding = new Thickness(14, 10, 14, 10), ColumnSpacing = 12 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

@@ -11,13 +11,25 @@ static class Program
         // удаляют): Velopack должен ответить и выйти раньше, чем появится окно.
         // При обычном запуске эта строка ничего не делает.
         Velopack.VelopackApp.Build().Run();
-        XamlGeneratedProgram.XamlGeneratedMain();
+        // Дальше — то же, что XamlGeneratedMain, но между ними второй запуск
+        // отдаёт свои адреса уже открытому окну и выходит (Links).
+        WinRT.ComWrappersSupport.InitializeComWrappers();
+        if (Links.Elsewhere()) return;
+        Application.Start(_ =>
+        {
+            var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            SynchronizationContext.SetSynchronizationContext(new Microsoft.UI.Dispatching.DispatcherQueueSynchronizationContext(queue));
+            new App();
+        });
     }
 }
 
 public partial class App : Application
 {
     MainWindow? window;
+
+    /// Прогон под управлением скрипта (BROWSER_QUIET) рядом с человеком за этим компьютером.
+    internal static readonly bool Quiet = Environment.GetEnvironmentVariable("BROWSER_QUIET") is not null;
 
     /// Закрыть окно как обычно — вкладки и история сохраняются — и тем выйти
     /// (обновление изнутри: установщик ждёт выхода).
@@ -47,7 +59,7 @@ public partial class App : Application
         // который работает за этим же компьютером: окно не забирает клавиатуру
         // и не встаёт поверх его окон. Иначе его Ctrl+S и Ctrl+Tab попадают в
         // проверяемый браузер — так уже было.
-        if (Environment.GetEnvironmentVariable("BROWSER_QUIET") is not null)
+        if (Quiet)
         {
             window.AppWindow.Show(activateWindow: false);
             window.AppWindow.MoveInZOrderAtBottom();

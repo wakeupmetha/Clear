@@ -34,6 +34,11 @@ public static class Settings
         lock (Gate) return Values()[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
     }
 
+    public static double Number(string key)
+    {
+        lock (Gate) return Values()[key] is JsonValue value && value.TryGetValue<double>(out var number) ? number : 0;
+    }
+
     public static string[] List(string key)
     {
         lock (Gate)
@@ -47,6 +52,8 @@ public static class Settings
     public static void Set(string key, bool value) => Put(key, JsonValue.Create(value));
 
     public static void Set(string key, string value) => Put(key, JsonValue.Create(value));
+
+    public static void Set(string key, double value) => Put(key, JsonValue.Create(value));
 
     public static void Set(string key, IEnumerable<string> list) =>
         Put(key, new JsonArray([.. list.Select(item => (JsonNode?)JsonValue.Create(item))]));

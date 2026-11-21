@@ -145,6 +145,9 @@ sealed class Field : Grid
 
     public void Close() => Visibility = Visibility.Collapsed;
 
+    /// Фокус в поле, ничего не меняя в набранном.
+    public void Take() => box.Focus(FocusState.Programmatic);
+
     /// После смены темы. Всё остальное перекрашивается само, вместе с кистью
     /// (см. Palette), но поле ввода запоминает цвет текста в момент, когда ему
     /// дали кисть, и за её цветом не следит: кисть надо дать заново.
