@@ -244,6 +244,13 @@ sealed partial class MainWindow
                 // (shift — Shift+щелчок), all — Ctrl+A, none — Esc.
                 if (tabs.Live?.Sheet is not HistoryPage list) throw new ArgumentException("history is not shown");
                 return new JsonObject { ["chosen"] = list.Choose(request.TryGetProperty("name", out var name) ? name.GetString() : null, Flag("shift"), Flag("all"), Flag("none")) };
+            case "point":
+            {
+                // Как указатель мыши, вставший на строку истории name и оставшийся там.
+                if (tabs.Live?.Sheet is not HistoryPage history) throw new ArgumentException("history is not shown");
+                history.Point(Text("name"));
+                return new JsonObject();
+            }
             case "menu":
             {
                 // Как правый щелчок по названному элементу: его меню.

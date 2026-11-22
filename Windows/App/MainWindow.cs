@@ -40,6 +40,13 @@ sealed partial class MainWindow : Window
     readonly Dictionary<Guid, TabRow> shown = [];
     /// Черта под закреплёнными вкладками.
     readonly Border pinLine = new() { Height = 1, Background = Palette.Hairline, Margin = new Thickness(10, 4, 10, 4) };
+    /// Пока вкладку несут, — бледная плитка там, где она встанет (Carry): без неё
+    /// несомая строка висит над соседней, и места, куда она упадёт, не видно.
+    readonly Border slot = new()
+    {
+        Height = Metrics.Row, CornerRadius = new CornerRadius(Metrics.RowRadius), Background = Palette.InkTile,
+        VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed,
+    };
     /// Места полосы, отданные кнопкам и строке: ставятся заново, только когда сдвинулись.
     RectInt32[] holes = [];
     readonly CancellationTokenSource closing = new();
@@ -104,7 +111,8 @@ sealed partial class MainWindow : Window
         newTab = Quiet(Ui.Plus, "New tab", () => tabs.Open(null));
         var scroll = new ScrollViewer
         {
-            Content = rows, Padding = new Thickness(Metrics.SidePadding, 0, Metrics.SidePadding, Metrics.SidePadding),
+            // Плитка — под строками, в той же клетке: строки рисуются поверх неё.
+            Content = new Grid { Children = { slot, rows } }, Padding = new Thickness(Metrics.SidePadding, 0, Metrics.SidePadding, Metrics.SidePadding),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Disabled,
         };
@@ -318,7 +326,11 @@ sealed partial class MainWindow : Window
     void Carry(Tab tab, double travel, bool done)
     {
         var from = tabs.All.IndexOf(tab);
-        if (from < 0) return;
+        if (from < 0 || !shown.TryGetValue(tab.Id, out var carried))
+        {
+            slot.Visibility = Visibility.Collapsed;
+            return;
+        }
         var pins = tabs.All.Count(other => other.Pin is not null);
         var (first, last) = tab.Pin is null ? (pins, tabs.All.Count - 1) : (0, pins - 1);
         var step = Metrics.Row + Metrics.TabGap;
@@ -331,6 +343,9 @@ sealed partial class MainWindow : Window
             var y = done ? 0 : i == from ? travel : i > from && i <= to ? -step : i < from && i >= to ? step : 0;
             row.Shift(y, !done && i == from);
         }
+        // Место строки в раскладке (без её сдвига) плюс места, которые она прошла.
+        slot.Translation = new System.Numerics.Vector3(0, (float)(carried.ActualOffset.Y + (to - from) * step), 0);
+        slot.Visibility = done ? Visibility.Collapsed : Visibility.Visible;
         if (done) tabs.Place(tab, to);
     }
 
@@ -642,7 +657,13 @@ sealed partial class MainWindow : Window
         var icon = Ui.Glyph(glyph, 14, Palette.Faint);
         icon.Width = 15;
         icon.Margin = new Thickness(0, 0, 8, 0);
-        var text = new TextBlock { Text = title, FontSize = 12.5, Foreground = Palette.Faint, VerticalAlignment = VerticalAlignment.Center };
+        // Посередине строки — буквы, а не строка шрифта (TextLineBounds.Tight): иначе
+        // подпись стояла на полторы-две точки ниже середины значка (замер по снимку).
+        var text = new TextBlock
+        {
+            Text = title, FontSize = 12.5, Foreground = Palette.Faint, VerticalAlignment = VerticalAlignment.Center,
+            TextLineBounds = TextLineBounds.Tight,
+        };
         var row = new Grid
         {
             Height = Metrics.Row, CornerRadius = new CornerRadius(Metrics.RowRadius), Background = Palette.Clear,

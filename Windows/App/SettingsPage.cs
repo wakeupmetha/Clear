@@ -134,7 +134,8 @@ sealed class SettingsPage : Grid
         {
             var icon = Ui.Glyph(glyph, 15, Palette.InkSoft);
             icon.VerticalAlignment = VerticalAlignment.Center;
-            var text = new TextBlock { Text = title, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+            // Посередине — буквы, а не строка шрифта: как подписи внизу колонки (MainWindow.Quiet).
+            var text = new TextBlock { Text = title, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextLineBounds = TextLineBounds.Tight };
             var plate = new StackPanel
             {
                 Orientation = Orientation.Horizontal, Spacing = 10, Height = 30, Padding = new Thickness(10, 0, 10, 0),

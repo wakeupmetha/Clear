@@ -39,6 +39,10 @@ sealed class HistoryPage : Grid
     readonly HashSet<string> chosen = [];
     string? anchor;
     bool clearing;
+    // Где указатель мыши над страницей. Строке, вставшей под него на место
+    // убранной, окно наведения не пришлёт: указатель не двигался, а строку
+    // список часто отдаёт ту же самую (Maker), и Show сбрасывает её наведение.
+    Windows.Foundation.Point? pointer;
 
     public HistoryPage(Tabs tabs)
     {
@@ -158,6 +162,9 @@ sealed class HistoryPage : Grid
         Foot();
 
         Loaded += (_, _) => Arrive();
+        AddHandler(PointerMovedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, moved) =>
+            pointer = moved.Pointer.PointerDeviceType == PointerDeviceType.Touch ? null : moved.GetCurrentPoint(this).Position), true);
+        PointerExited += (_, _) => pointer = null;
         // К странице вернулись с другой вкладки: за это время там могли
         // побывать в новых местах.
         RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => { if (Visibility == Visibility.Visible) Arrive(); });
@@ -265,6 +272,16 @@ sealed class HistoryPage : Grid
         return chosen.Count;
     }
 
+    /// Тест-канал: указатель человека в тихое окно не завести — как если бы
+    /// он встал на середину строки с этим именем и остался там.
+    public void Point(string name)
+    {
+        var under = Rows().FirstOrDefault(row => row.Called == name) ?? throw new ArgumentException("no such place");
+        var spot = under.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(under.ActualWidth / 2, under.ActualHeight / 2));
+        pointer = spot;
+        foreach (var each in Rows()) each.Under(spot);
+    }
+
     /// Убирает места из истории. keyed — убрали клавишей: фокус был в списке
     /// и остаётся в нём, на строке, вставшей на место первой убранной.
     void Forget(IEnumerable<string> keys, bool keyed)
@@ -273,8 +290,12 @@ sealed class HistoryPage : Grid
         var at = lines.FindIndex(line => line.Page is { } page && gone.Contains(page.Key));
         foreach (var key in gone) tabs.History.Forget(key);
         Refresh();
-        if (!keyed) return;
         list.UpdateLayout();
+        // Под неподвижным указателем теперь следующая строка: Remove сразу у
+        // неё, как в апстриме, — видно, что прежняя ушла, и следующую можно
+        // убрать тем же щелчком.
+        if (pointer is { } spot) foreach (var row in Rows()) row.Under(spot);
+        if (!keyed) return;
         // На этом месте теперь следующая строка, имя следующего дня или конец списка.
         var next = new[] { at, at + 1, at - 1 }.Where(i => i >= 0 && i < lines.Count)
             .Select(i => list.TryGetElement(i)).OfType<Row>().FirstOrDefault();
@@ -471,6 +492,14 @@ sealed class HistoryPage : Grid
         void Leave()
         {
             hovering = false;
+            Paint();
+        }
+
+        /// Список переложили под неподвижным указателем: наведение — по тому, где он.
+        public void Under(Windows.Foundation.Point spot)
+        {
+            var at = page.TransformToVisual(this).TransformPoint(spot);
+            hovering = at.X >= 0 && at.Y >= 0 && at.X < ActualWidth && at.Y < ActualHeight;
             Paint();
         }
 
