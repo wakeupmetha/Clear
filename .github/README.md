@@ -1,18 +1,18 @@
-# aerio
+# Clear
 
 A calm, fast browser for Windows: tabs down the left, the page as a card, and nothing else in the way.
 
-![aerio on Windows, with its tabs down the left and the history page open](aerio.png)
+![The browser on Windows, with its tabs down the left and the history page open](aerio.png)
 
 Windows 10 (2004) or later · x64 · free
 
 ## Where it comes from
 
-aerio is the Windows sibling of [Search](https://github.com/driceroland/Search), a small, quiet browser for the Mac by [Office Commun](https://officecommun.com).
+Clear is the Windows sibling of [Search](https://github.com/driceroland/Search), a small, quiet browser for the Mac by [Office Commun](https://officecommun.com).
 
 We did not port its code line by line. We took its design, its feel and its style as our inspiration and rebuilt them natively for Windows with C#, WinUI 3 and WebView2. The goal is the same as Search's: fast, light, capable and good-looking.
 
-aerio is not affiliated with or endorsed by Office Commun. The name Search and its icon belong to them and are not used here.
+Clear is not affiliated with or endorsed by Office Commun. The name Search and its icon belong to them and are not used here.
 
 ## What carries over
 
@@ -49,12 +49,12 @@ How the app is put together, and how it differs from the Mac version in detail, 
 
 | Path | What |
 |---|---|
-| `Windows/` | aerio: `Core` (logic, no UI), `Tests`, `App` (WinUI 3 window) |
+| `Windows/` | Clear: `Core` (logic, no UI), `Tests`, `App` (WinUI 3 window) |
 | everything else | Search for macOS, as upstream publishes it, kept as the reference for behaviour and design |
 
 ## License
 
-aerio is MIT licensed, like Search: see [LICENSE](../LICENSE), which keeps Office Commun's copyright notice.
+Clear is MIT licensed, like Search: see [LICENSE](../LICENSE), which keeps Office Commun's copyright notice.
 
 It bundles or uses:
 - uBlock Origin, GPLv3. Its license ships next to it in `Windows/App/Extensions`.

@@ -118,6 +118,7 @@ public static class Shortcuts
         new("view.fold", "Hide Sidebar", Bind("ctrl+s")),
         new("view.focus", "Focus Mode", Bind("ctrl+shift+f")),
         new("view.reload", "Reload Page", Bind("ctrl+r"), Native: true, Also: "F5"),
+        new("view.reloadOrigin", "Reload Page From Origin", Bind("ctrl+shift+r"), Native: true, Also: "Ctrl+F5"),
         new("view.inspector", "Developer Tools", Bind("ctrl+shift+i"), Native: true, Also: "F12"),
         new("tabs.back", "Back", Bind("alt+left"), Native: true),
         new("tabs.forward", "Forward", Bind("alt+right"), Native: true),
@@ -129,6 +130,8 @@ public static class Shortcuts
         // Добавить, а не переключить: сохранённая страница так и остаётся (апстрим).
         new("bookmarks.add", "Add This Page", Bind("ctrl+shift+b")),
         new("history.show", "Show History…", Bind("ctrl+h")),
+        // Страница его не получает: очистка достаётся и из поля редактора (апстрим).
+        new("history.clearData", "Clear Browsing Data…", Bind("ctrl+shift+delete"), Yields: false),
         new("history.downloads", "Downloads…", Bind("ctrl+j"), Native: true),
     ];
 
@@ -193,7 +196,10 @@ public static class Shortcuts
         || c.Key is "f5" or "f10" or "f12"
         || (c.Ctrl && c.Alt)
         || (c.Alt && c.Key is "f4" or "space")
-        || (c.Ctrl && c.Key is "left" or "right" or "up" or "down" or "home" or "end" or "backspace" or "delete")
+        || (c.Ctrl && c.Key is "left" or "right" or "up" or "down" or "home" or "end" or "backspace")
+        // Ctrl+Delete — стереть слово; Ctrl+Shift+Delete правка текста не знает,
+        // во всех браузерах это очистка данных.
+        || (c.Ctrl && !c.Shift && c.Key == "delete")
         || Numbers.Contains(c)
         || Editing.Contains(c);
 

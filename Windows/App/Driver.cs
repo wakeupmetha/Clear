@@ -111,6 +111,12 @@ sealed partial class MainWindow
                 field.Close();
                 tabs.Go(destination);
                 return new JsonObject { ["url"] = destination.AbsoluteUri, ["id"] = tabs.Live?.Id.ToString() };
+            case "command":
+                // Команда окна по имени (Shortcuts), как её сочетание вне страницы:
+                // ускоритель окна тест-канал не нажмёт.
+                if (!acts.TryGetValue(Text("id"), out var act)) throw new ArgumentException("no such command");
+                act();
+                return new JsonObject();
             case "clip":
                 // Что Paste and Go возьмёт вместо буфера обмена.
                 clip = Text("text");

@@ -80,6 +80,14 @@ static class Metrics
     /// и всё в полосе стоит на одной средней линии (просьба владельца 2026-11-20:
     /// «лайн не ровный»; при 40 кнопки окна стояли на 4 точки выше остального).
     public const double Band = 48;
+    /// Окно меньше не сжимается: как у главного окна апстрима (ContentView,
+    /// minWidth 640, minHeight 420). Без предела окно сжималось до колонки, и
+    /// кнопки окна наезжали на кнопки полосы.
+    public const double WindowWidth = 640;
+    public const double WindowHeight = 420;
+    /// Строка в полосе уже этого не сжимается, пока есть отступ, который не
+    /// требуют кнопки: в узком окне она съезжает с середины, а не тает до значка.
+    public const double BarNarrowest = 200;
     /// Колонка заголовков слева.
     public const double Side = 232;
     public const double SidePadding = 10;
@@ -100,6 +108,10 @@ static class Metrics
     public const double FieldWidth = 560;
     /// Рельс разделов на странице настроек (Settings.swift, rail).
     public const double SettingsRail = 196;
+    /// Страница настроек уже рельса и стольких точек — рельс сворачивается до
+    /// значков (ширина SettingsRailNarrow): колонке строк нужно хотя бы столько.
+    public const double SettingsNarrowest = 420;
+    public const double SettingsRailNarrow = 51;
     public const double FieldHeight = 50;
     public const double FieldRadius = 14;
     public const double FieldText = 15.5;

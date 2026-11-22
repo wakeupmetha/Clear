@@ -5,7 +5,7 @@
 #   Start-Shell; Send-Bench @{ do = "history" }; Save-Shot "history"; Stop-Shell
 #
 # Команды тест-канала — в README, раздел «Тест-канал». Данные мира лежат в
-# %LOCALAPPDATA%\aerio (shell); снимки — в $Shots.
+# %LOCALAPPDATA%\Clear (shell); снимки — в $Shots.
 Add-Type -AssemblyName System.Drawing.Common
 Add-Type -Namespace Probe -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
@@ -15,8 +15,8 @@ Add-Type -Namespace Probe -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int how);
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 '@
-$script:Exe = Join-Path $PSScriptRoot "App\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\aerio.exe"
-$script:World = Join-Path $env:LOCALAPPDATA "aerio (shell)"
+$script:Exe = Join-Path $PSScriptRoot "App\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\Clear.exe"
+$script:World = Join-Path $env:LOCALAPPDATA "Clear (shell)"
 $script:Shots = Join-Path $env:TEMP "browser-shots"
 
 function Start-Shell {
@@ -30,7 +30,7 @@ function Start-Shell {
     $p
 }
 
-function Get-Shell { Get-Process -Name aerio -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:Exe } | Select-Object -First 1 }
+function Get-Shell { Get-Process -Name Clear -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:Exe } | Select-Object -First 1 }
 
 function Save-Shot([string]$Name) {
     $p = Get-Shell
@@ -50,7 +50,7 @@ function Save-Shot([string]$Name) {
 }
 
 function Send-Bench([hashtable]$Request) {
-    $c = [System.IO.Pipes.NamedPipeClientStream]::new(".", "aerio (shell).bench", [System.IO.Pipes.PipeDirection]::InOut)
+    $c = [System.IO.Pipes.NamedPipeClientStream]::new(".", "Clear (shell).bench", [System.IO.Pipes.PipeDirection]::InOut)
     $c.Connect(5000)
     $bytes = [Text.Encoding]::UTF8.GetBytes(($Request | ConvertTo-Json -Compress -Depth 6) + "`n")
     $c.Write($bytes, 0, $bytes.Length); $c.Flush()

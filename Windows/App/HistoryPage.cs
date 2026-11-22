@@ -282,7 +282,8 @@ sealed class HistoryPage : Grid
         else next.Take();
     }
 
-    void Clearing(bool on)
+    /// Карточка очистки: показать (Clear… и Ctrl+Shift+Delete) или убрать.
+    public void Clearing(bool on)
     {
         clearing = on;
         Foot();

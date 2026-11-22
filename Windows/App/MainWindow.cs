@@ -28,6 +28,8 @@ sealed partial class MainWindow : Window
     readonly Button newTab;
     readonly Grid card;
     readonly FindBar find;
+    /// Что делает каждая команда окна (Bindings); тест-канал зовёт их по имени.
+    Dictionary<string, Action> acts = [];
     readonly Button fold, back, forward, reload, bookmark, fetches;
     readonly Tabs tabs;
     readonly Field field;
@@ -46,7 +48,7 @@ sealed partial class MainWindow : Window
     {
         Title = Store.Name;
         // Без этого у окна в панели задач и по Alt+Tab значок по умолчанию.
-        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "aerio.ico"));
+        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "clear.ico"));
         ExtendsContentIntoTitleBar = true;
         Place();
 
@@ -159,13 +161,15 @@ sealed partial class MainWindow : Window
             }
             else if (key == "sidebar.folded" && Settings.Bool(key) != folded) ToggleFold();
             else if (key == "window.focus") FollowFocus();
-            else if (key is "sites.keep" or "passwords.save" or "contacts.fill") tabs.Redress();
+            else if (key is "sites.keep" or "passwords.save" or "contacts.fill" or "downloads") tabs.Redress();
             else if (key is "tabs.sleep" or "tabs.sleep.pace" or "sleep.after") tabs.Doze();
         };
 
         root.Loaded += (_, _) =>
         {
             Theme();
+            Least();
+            root.XamlRoot.Changed += (_, _) => Least();
             Passthrough();
             // Фокус, поставленный при восстановлении вкладок, ещё без окна, не
             // брался: его забирала первая кнопка полосы, с рамкой, а проснувшийся
@@ -410,6 +414,25 @@ sealed partial class MainWindow : Window
         bar.ButtonPressedBackgroundColor = Palette.SideWash.Color;
     }
 
+    /// Меньше Metrics.WindowWidth на WindowHeight окно не сжимается: ни рамкой,
+    /// ни AppWindow.Resize. Предел у презентера в пикселях экрана, поэтому
+    /// пересчитывается при смене масштаба — окно переехало на другой экран.
+    /// Window.MinWidth, который делает это сам, в Windows App SDK 2.7 ещё нет.
+    void Least()
+    {
+        if (root.XamlRoot is not { } xaml || AppWindow.Presenter is not OverlappedPresenter presenter) return;
+        var width = (int)Math.Ceiling(Metrics.WindowWidth * xaml.RasterizationScale);
+        var height = (int)Math.Ceiling(Metrics.WindowHeight * xaml.RasterizationScale);
+        if (presenter.PreferredMinimumWidth == width && presenter.PreferredMinimumHeight == height) return;
+        presenter.PreferredMinimumWidth = width;
+        presenter.PreferredMinimumHeight = height;
+        // Прошлая рамка (window.frame) встаёт до того, как масштаб известен:
+        // окно, закрытое узким до этого предела, дорастает до него.
+        var size = AppWindow.Size;
+        if (presenter.State == OverlappedPresenterState.Restored && (size.Width < width || size.Height < height))
+            AppWindow.Resize(new SizeInt32(Math.Max(size.Width, width), Math.Max(size.Height, height)));
+    }
+
     // Полоса целиком отдана системе под перетаскивание окна, поэтому место
     // под кнопками и строкой надо у неё забрать обратно, иначе нажатия до них
     // не дойдут.
@@ -429,9 +452,14 @@ sealed partial class MainWindow : Window
         // сложена — карточка начинается под ними), ни под кнопки окна справа.
         var right = AppWindow.TitleBar.RightInset / scale + 8;
         if (actions.View.Margin.Right != right || actions.View.Margin.Bottom != lift) actions.View.Margin = new Thickness(0, 0, right, lift);
-        var inset = Math.Max(Math.Max(8, doors.Margin.Left + doors.ActualWidth + 8 - root.ColumnDefinitions[0].ActualWidth),
-            right + (actions.View.ActualWidth > 0 ? actions.View.ActualWidth + 8 : 0));
-        if (bar.View.Margin.Left != inset || bar.View.Margin.Bottom != lift) bar.View.Margin = new Thickness(inset, 0, inset, lift);
+        var left = Math.Max(8, doors.Margin.Left + doors.ActualWidth + 8 - root.ColumnDefinitions[0].ActualWidth);
+        var after = right + (actions.View.ActualWidth > 0 ? actions.View.ActualWidth + 8 : 0);
+        var inset = Math.Max(left, after);
+        // Узкое окно: строке не хватает до BarNarrowest — ей отдаётся отступ с
+        // той стороны, где его не требуют кнопки, и она съезжает с середины.
+        var lack = Math.Max(0, Metrics.BarNarrowest - (root.ColumnDefinitions[1].ActualWidth - 2 * inset));
+        var place = new Thickness(inset - Math.Min(lack, inset - left), 0, inset - Math.Min(lack, inset - after), lift);
+        if (!bar.View.Margin.Equals(place)) bar.View.Margin = place;
         RectInt32 Hole(FrameworkElement part)
         {
             var corner = part.TransformToVisual(null).TransformPoint(new Point(0, 0));
@@ -455,7 +483,7 @@ sealed partial class MainWindow : Window
         // Shortcuts), человек может его сменить. Ctrl+, — как ⌘, на Mac;
         // Ctrl+H — как в браузерах на Windows (на Mac ⌘Y); Ctrl+Shift+F — как
         // «компактный режим» Google Docs.
-        var acts = new Dictionary<string, Action>
+        acts = new Dictionary<string, Action>
         {
             ["app.settings"] = () => tabs.Show(Own.Settings),
             ["file.newTab"] = () => tabs.Open(null),
@@ -470,6 +498,7 @@ sealed partial class MainWindow : Window
             ["view.fold"] = ToggleFold,
             ["view.focus"] = ToggleFocus,
             ["view.reload"] = tabs.Reload,
+            ["view.reloadOrigin"] = tabs.ReloadOrigin,
             ["view.inspector"] = tabs.Inspect,
             ["tabs.back"] = tabs.Back,
             ["tabs.forward"] = tabs.Forward,
@@ -480,6 +509,12 @@ sealed partial class MainWindow : Window
             ["tabs.pasteAndGo"] = PasteAndGo,
             ["bookmarks.add"] = () => { if (Keepable() is { } page) Bookmarks.Add(page, tabs.Live!.Title); },
             ["history.show"] = () => tabs.Show(Own.History),
+            ["history.clearData"] = () =>
+            {
+                // Как clearBrowsingData апстрима: история, сразу с карточкой очистки.
+                tabs.Show(Own.History);
+                if (tabs.Live?.Sheet is HistoryPage history) history.Clearing(true);
+            },
             ["history.downloads"] = () => tabs.Show(Own.Downloads),
         };
         // Сочетания, которые приходят и из страницы (PageKeys): по имени.
@@ -514,6 +549,7 @@ sealed partial class MainWindow : Window
             // их никому не отдаёт. Те, что движок понимает сам внутри страницы
             // (F5, F12, Ctrl+P…), здесь работают и из адресной строки с колонкой.
             On(new Combo("f5"), tabs.Reload);
+            On(new Combo("f5", Ctrl: true), tabs.ReloadOrigin);
             On(new Combo("f12"), tabs.Inspect);
             for (var n = 1; n <= 9; n++)
             {

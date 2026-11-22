@@ -6,10 +6,10 @@ using Microsoft.Windows.AppLifecycle;
 namespace Browser;
 
 // Ссылки извне (Links.swift апстрима): адрес или страница на диске, с которыми
-// запустили aerio.exe, открываются вкладкой. Окно на мир одно: второй запуск
+// запустили Clear.exe, открываются вкладкой. Окно на мир одно: второй запуск
 // отдаёт свои адреса первому и выходит, иначе два окна делили бы вкладки,
 // историю и папку движка. Адреса, пришедшие раньше окна, ждут его здесь.
-// Браузером по умолчанию aerio себя не записывает: это решение владельца.
+// Браузером по умолчанию Clear себя не записывает: это решение владельца.
 static class Links
 {
     static readonly List<Uri> waiting = [];
@@ -20,7 +20,7 @@ static class Links
     public static bool Elsewhere()
     {
         // Ключ — папка мира: тестовое окно не перехватывает запуски настоящего.
-        var owner = AppInstance.FindOrRegisterForKey("aerio " + Store.Folder);
+        var owner = AppInstance.FindOrRegisterForKey(Store.Name + " " + Store.Folder);
         if (owner.IsCurrent)
         {
             waiting.AddRange(Address.Launched(Environment.GetCommandLineArgs().Skip(1)));

@@ -2,7 +2,7 @@
 #
 #   Windows/pack.ps1
 #
-# Итог — dist\Releases\aerio-browser-win-Setup.exe и рядом переносная сборка
+# Итог — dist\Releases\clear-browser-win-Setup.exe и рядом переносная сборка
 # (Portable.zip). Версия берётся из <Version> в App\App.csproj. Подписи кода нет:
 # Windows при первом запуске установщика покажет предупреждение SmartScreen.
 #
@@ -34,15 +34,15 @@ try {
     foreach ($old in "dist\app", "dist\Releases") { if (Test-Path $old) { Remove-Item -Recurse -Force $old -Confirm:$false } }
     dotnet publish App -c Release -p:Platform=x64 -r win-x64 --self-contained true -o dist\app
     if ($LASTEXITCODE) { throw "publish failed" }
-    # Имя пакета не «aerio»: Velopack ставит программу в %LOCALAPPDATA%\<имя пакета>
-    # и при удалении стирает эту папку целиком, а в %LOCALAPPDATA%\aerio лежат
+    # Имя пакета не «Clear»: Velopack ставит программу в %LOCALAPPDATA%\<имя пакета>
+    # и при удалении стирает эту папку целиком, а в %LOCALAPPDATA%\Clear лежат
     # вкладки, история и входы человека. --framework: на Windows 10 без движка
     # WebView2 установщик сам его поставит.
     # Чего в пакете нет (задача 13: установщик 108 → 83 МБ, программа 259 → 199 МБ):
     # родных библиотек ИИ, поиска и виджетов из Windows App SDK — onnxruntime и
     # DirectML (40 МБ), Microsoft.Windows.AI.*, Search, SemanticIndex, Widgets,
     # Graphics.Imaging: браузер их не вызывает, а грузятся они, только когда их
-    # вызвали. Управляемые обёртки к ним остаются: они записаны в aerio.deps.json,
+    # вызвали. Управляемые обёртки к ним остаются: они записаны в Clear.deps.json,
     # без них не запустится. Ещё нет чтения pdb (pdb не кладём, это и умолчание
     # vpk) и переводов элементов WinUI, кроме английских: надписи окна — на
     # английском, без перевода элемент берёт английский текст из своей библиотеки.
@@ -53,8 +53,8 @@ try {
         '|Microsoft\.Windows\.AI\.(Imaging|MachineLearning|Text|Search\.Experimental|Video|AICapabilities|ContentSafety)' +
         '|Microsoft\.Windows\.Search|Microsoft\.Asg\.SemanticIndex\.AiFabric\.Compatibility|Microsoft\.Windows\.Widgets|Microsoft\.Graphics\.Imaging)\.dll$' +
         '|(^|[\\/])(?!en-us[\\/]|en-GB[\\/])[A-Za-z]{2,3}(-[A-Za-z0-9]+)+[\\/][^\\/]+\.mui$'
-    dotnet vpk pack --packId aerio-browser --packTitle aerio --packAuthors aerio --packVersion $version `
-        --packDir dist\app --mainExe aerio.exe --icon App\Assets\aerio.ico --framework webview2 `
+    dotnet vpk pack --packId clear-browser --packTitle Clear --packAuthors Clear --packVersion $version `
+        --packDir dist\app --mainExe Clear.exe --icon App\Assets\clear.ico --framework webview2 `
         --runtime win-x64 --outputDir dist\Releases --exclude $exclude
     if ($LASTEXITCODE) { throw "pack failed" }
     Get-ChildItem dist\Releases | Select-Object Name, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }

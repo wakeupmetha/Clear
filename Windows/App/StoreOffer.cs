@@ -7,7 +7,7 @@ using Microsoft.UI.Xaml.Media;
 namespace Browser;
 
 /// На странице расширения в Chrome Web Store — плашка внизу страницы: добавить
-/// его в aerio. Кнопка самого магазина там говорит «Switch to Chrome».
+/// его в браузер. Кнопка самого магазина там говорит «Switch to Chrome».
 /// StoreOffer из Sources/Search/ExtensionsUI.swift.
 ///
 /// Какое расширение — только из адреса вкладки (Crx.StoreId), а не из того, что
@@ -32,7 +32,7 @@ sealed class StoreOffer
         this.tabs = tabs;
         var word = Ui.Word("Add");
         word.Foreground = Palette.Ground;
-        add = Ui.Bare(new Button { CornerRadius = new CornerRadius(13), VerticalAlignment = VerticalAlignment.Center }, "Add this extension to aerio",
+        add = Ui.Bare(new Button { CornerRadius = new CornerRadius(13), VerticalAlignment = VerticalAlignment.Center }, $"Add this extension to {Store.Name}",
             new Border { Height = 26, CornerRadius = new CornerRadius(13), Padding = new Thickness(11, 0, 11, 2), Background = Palette.Ink, Child = word });
         add.Click += (_, _) => Add();
         var puzzle = Ui.Glyph(Ui.Puzzle, 13, Palette.Muted);
@@ -61,7 +61,7 @@ sealed class StoreOffer
         View.Visibility = id is null || added ? Visibility.Collapsed : Visibility.Visible;
         if (id is null || added) return;
         var adding = busy.Contains(id);
-        words.Text = adding ? "Adding…" : "Add this extension to aerio";
+        words.Text = adding ? "Adding…" : $"Add this extension to {Store.Name}";
         words.Foreground = Palette.Ink;
         add.Visibility = adding ? Visibility.Collapsed : Visibility.Visible;
     }

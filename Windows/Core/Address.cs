@@ -215,8 +215,8 @@ public static class Address
 /// До движка такой адрес не доходит: вкладку рисует сама оболочка.
 public static class Own
 {
-    /// В апстриме это search://. Здесь схема идёт за рабочим именем
-    /// (Store.Name) и сменится вместе с ним.
+    /// В апстриме это search://. Здесь не имя браузера: clear://history
+    /// читалось бы как приказ очистить историю.
     public const string Scheme = "browser";
 
     public static readonly Uri Settings = new(Scheme + "://settings");

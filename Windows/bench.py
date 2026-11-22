@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Тест-канал aerio из Python: то же, что ./bench апстрима и Send-Bench в drive.ps1.
+"""Тест-канал браузера из Python: то же, что ./bench апстрима и Send-Bench в drive.ps1.
 
     python Windows/bench.py start [EXE]       тихое окно в тестовом мире (по умолчанию — сборка из bin)
     python Windows/bench.py stop              закрыть его штатно, как крестиком
@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-EXE = HERE / "App" / "bin" / "x64" / "Debug" / "net10.0-windows10.0.19041.0" / "win-x64" / "aerio.exe"
+EXE = HERE / "App" / "bin" / "x64" / "Debug" / "net10.0-windows10.0.19041.0" / "win-x64" / "Clear.exe"
 WORLD = os.environ.get("BENCH_WORLD", "shell")
 
 
@@ -38,13 +38,13 @@ def _world(world):
 
 
 def folder(world=WORLD):
-    return Path(os.environ["LOCALAPPDATA"]) / f"aerio ({_world(world)})"
+    return Path(os.environ["LOCALAPPDATA"]) / f"Clear ({_world(world)})"
 
 
 def ask(request, world=WORLD, patience=5.0):
     """Строка JSON в канал, строка обратно. Канала нет (окно ещё встаёт) или он
     занят — повторяем, пока не выйдет patience секунд."""
-    pipe = rf"\\.\pipe\aerio ({_world(world)}).bench"
+    pipe = rf"\\.\pipe\Clear ({_world(world)}).bench"
     deadline = time.monotonic() + patience
     while True:
         try:
@@ -87,7 +87,7 @@ def start(exe=EXE, world=WORLD):
         except OSError:
             if time.monotonic() > deadline:
                 raise
-    raise RuntimeError(f"aerio exited with code {process.returncode}")
+    raise RuntimeError(f"Clear exited with code {process.returncode}")
 
 
 def stop(world=WORLD):
@@ -136,7 +136,7 @@ def main(argv):
     try:
         answer = ask(request)
     except FileNotFoundError:
-        print(f"aerio isn't running in the world {_world(WORLD)}: python Windows/bench.py start", file=sys.stderr)
+        print(f"Clear isn't running in the world {_world(WORLD)}: python Windows/bench.py start", file=sys.stderr)
         return 2
     print(json.dumps(answer, ensure_ascii=False, indent=2))
     return 1 if isinstance(answer, dict) and "error" in answer else 0

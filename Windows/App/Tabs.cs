@@ -617,6 +617,16 @@ sealed class Tabs(Panel stage)
     public void Forward() { if (CanGoForward) Live!.View!.CoreWebView2.GoForward(); }
     public void Reload() => Live?.View?.CoreWebView2?.Reload();
 
+    /// Перезагрузка мимо кэша (reload(fromOrigin:) апстрима): у Reload движка
+    /// такой нет — через отладочный протокол.
+    public async void ReloadOrigin()
+    {
+        if (Live?.View?.CoreWebView2 is not { } core) return;
+        try { await core.CallDevToolsProtocolMethodAsync("Page.reload", """{"ignoreCache":true}"""); }
+        // Вкладку закрыли, пока звали.
+        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or ObjectDisposedException) { }
+    }
+
     // Печать и DevTools движок открывает сам по своим клавишам, но только пока
     // фокус внутри страницы. Из адресной строки и колонки вкладок эти клавиши
     // до движка не доходят, поэтому оболочка берёт их на себя.
@@ -654,8 +664,11 @@ sealed class Tabs(Panel stage)
         // contacts.fill в апстриме выключен, потому что macOS спрашивает про
         // Контакты; здесь спрашивать некого, и движок по умолчанию заполняет.
         profile.IsGeneralAutofillEnabled = Settings.Bool("contacts.fill", true);
-        // В тестовом мире файлы ложатся в его папку, а не в Загрузки человека.
-        if (Store.Testing) profile.DefaultDownloadFolderPath = Path.Combine(Store.Folder, "Downloads");
+        // Куда ложатся файлы (downloads апстрима, Settings › General). Без
+        // настройки — папка движка (Загрузки Windows), а в тестовом мире — его
+        // папка, не Загрузки человека.
+        if (Settings.Text("downloads") is { Length: > 0 } folder) profile.DefaultDownloadFolderPath = folder;
+        else if (Store.Testing) profile.DefaultDownloadFolderPath = Path.Combine(Store.Folder, "Downloads");
     }
 
     /// Настройку движка сменили: применить ко всем живым движкам. Профиль у
@@ -869,7 +882,7 @@ sealed class Tabs(Panel stage)
         core.WindowCloseRequested += (_, _) => { if (tab.View == view) Close(tab); };
         // Загрузка живёт в движке страницы: пока она идёт или стоит на паузе,
         // вкладка не спит. Окошко движка не показываем: список — своя страница.
-        core.DownloadStarting += (_, start) =>
+        core.DownloadStarting += async (_, start) =>
         {
             start.Handled = true;
             var download = start.DownloadOperation;
@@ -877,6 +890,26 @@ sealed class Tabs(Panel stage)
             // самая, начатая повтором. Не по адресу: у ссылок на файл с подписью
             // он от запроса к запросу разный.
             if (retried && core.Source == "about:blank" && ++echoes == 2) { start.Cancel = true; return; }
+            // Спросить, куда положить (downloads.ask апстрима, Settings › General):
+            // загрузка ждёт ответа под отсрочкой; передумали — её нет.
+            if (Settings.Bool("downloads.ask"))
+            {
+                var wait = start.GetDeferral();
+                try
+                {
+                    var picker = new Microsoft.Windows.Storage.Pickers.FileSavePicker(stage.XamlRoot.ContentIslandEnvironment.AppWindowId)
+                    {
+                        SuggestedFileName = Path.GetFileName(start.ResultFilePath),
+                        SuggestedFolder = Path.GetDirectoryName(start.ResultFilePath) ?? "",
+                    };
+                    if (await picker.PickSaveFileAsync() is { } chosen) start.ResultFilePath = chosen.Path;
+                    else start.Cancel = true;
+                }
+                // Окно выбора не открылось: файл ляжет, куда лёг бы без вопроса.
+                catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException) { }
+                finally { wait.Complete(); }
+                if (start.Cancel || tab.View != view) return;
+            }
             tab.Downloads.Add(download);
             Fetching.Watch(download, tab);
             download.StateChanged += (_, _) =>

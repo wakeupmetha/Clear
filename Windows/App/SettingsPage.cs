@@ -55,12 +55,15 @@ sealed class SettingsPage : Grid
         var forms = FormRows(tabs);
         // Разделы, как в апстриме (Settings.swift, Page; просьба владельца
         // 2026-11-21: «по категориям, как в оригинале»), и только те, где у нас
-        // есть что ставить: General и Spaces & Pins появятся со своими
-        // первыми строками. Блоки рельса — тоже апстрима: браузер, твои данные и
+        // есть что ставить: Spaces & Pins появится со своими первыми строками.
+        // Блоки рельса — тоже апстрима: браузер, твои данные и
         // инструменты, About.
         (string Key, string Title, string Glyph, StackPanel[] Groups)[][] blocks =
         [
             [
+                ("general", "General", Ui.Gear, [Group("Downloads", Ui.Download, SaveTo(),
+                Row(Ui.Download, "Ask where to save each file", "A save dialog for every download",
+                    Switch("Ask where to save each file", () => Settings.Bool("downloads.ask"), on => Settings.Set("downloads.ask", on))))]),
                 ("appearance", "Appearance", Ui.Colour, [Group("Light and dark", Ui.SunMoon,
                 Row(Ui.SunMoon, "Appearance", "Light, dark, or as Windows has it. Pages follow too",
                     Choice("Appearance", [("light", "Light"), ("dark", "Dark"), ("system", "System")],
@@ -119,6 +122,7 @@ sealed class SettingsPage : Grid
             Margin = new Thickness(10, 14, 10, 10),
         });
         var marks = new List<(string Key, RadioButton Option)>();
+        var names = new List<(RadioButton Option, TextBlock Text, string Title)>();
         foreach (var block in blocks)
         {
             if (marks.Count > 0) rail.Children.Add(new Border { Height = 1, Background = Palette.Hairline, Margin = new Thickness(10, 7, 10, 7) });
@@ -160,8 +164,29 @@ sealed class SettingsPage : Grid
             option.Unchecked += (_, _) => Paint();
             Paint();
             rail.Children.Add(option);
+            names.Add((option, text, title));
             return option;
         }
+
+        // Узкая страница (окно у своего предела, колонка вкладок открыта): рельс —
+        // одни значки с подсказками, поля колонки уже. Иначе строкам настроек
+        // оставалось по букве в ряд.
+        var heading = (TextBlock)rail.Children[0];
+        var narrow = false;
+        SizeChanged += (_, _) =>
+        {
+            var now = ActualWidth < Metrics.SettingsRail + Metrics.SettingsNarrowest;
+            if (now == narrow) return;
+            narrow = now;
+            rail.Width = narrow ? Metrics.SettingsRailNarrow : Metrics.SettingsRail;
+            heading.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var (option, text, name) in names)
+            {
+                text.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+                ToolTipService.SetToolTip(option, narrow ? name : null);
+            }
+            column.Padding = new Thickness(narrow ? 12 : 24, 26, narrow ? 12 : 24, 24);
+        };
 
         // Показан раздел из settings.page (ключ апстрима): его ставит рельс, а
         // проверки — тест-каналом (set). Незнакомый — первый. Группы собраны
@@ -284,13 +309,30 @@ sealed class SettingsPage : Grid
         return row;
     }
 
-    /// Обновить aerio изнутри: пересобрать из исходников на этом компьютере и
+    /// Куда ложатся загрузки (downloads.folder апстрима): путь и «Change…».
+    /// Движок берёт папку из настройки (Tabs.Dress); без неё — Загрузки Windows.
+    StackPanel SaveTo()
+    {
+        static string Folder() => Settings.Text("downloads") ?? "The Downloads folder";
+        var row = Row(Ui.FolderOpen, "Save to", Folder(), Pill("Change where downloads are saved", Word("Change…"), Change));
+        // Подпись строки (Row): второй текст её слов. Путь сменили — подпись за ним.
+        var said = (TextBlock)((StackPanel)((Grid)row.Children[1]).Children[1]).Children[1];
+        follow.Add(() => said.Text = Folder());
+        async void Change()
+        {
+            var picker = new Microsoft.Windows.Storage.Pickers.FolderPicker(XamlRoot.ContentIslandEnvironment.AppWindowId);
+            if (await picker.PickSingleFolderAsync() is { } folder) Settings.Set("downloads", folder.Path);
+        }
+        return row;
+    }
+
+    /// Обновить браузер изнутри: пересобрать из исходников на этом компьютере и
     /// поставить (Updater). Ход и ошибка — строкой под описанием.
     static StackPanel UpdateRow()
     {
         var status = new TextBlock { FontSize = 11.5, Foreground = Palette.Muted, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
         var word = Word("Update");
-        var pill = Pill("Rebuild and update aerio", word);
+        var pill = Pill($"Rebuild and update {Store.Name}", word);
         // Кнопку не выключаем: выключенная теряет фокус, и он прыгает в колонку.
         // Второе нажатие во время сборки Updater сам пропускает.
         void Building()
@@ -298,7 +340,7 @@ sealed class SettingsPage : Grid
             word.Text = "Building…";
             status.Visibility = Visibility.Visible;
             status.Foreground = Palette.Muted;
-            status.Text = "Building from the source, then installing. Takes a minute or two; aerio restarts";
+            status.Text = $"Building from the source, then installing. Takes a minute or two; {Store.Name} restarts";
         }
         if (Updater.Busy) Building();
         pill.Click += async (_, _) =>
@@ -315,9 +357,9 @@ sealed class SettingsPage : Grid
             }
         };
         var detail = Updater.Source is null ? $"Version {Updater.Version}. The source isn't on this computer"
-            : !Updater.Installed ? $"Version {Updater.Version}. Only the installed aerio updates itself"
-            : $"Version {Updater.Version}. Builds aerio again from the source on this computer and installs it";
-        return Row(Ui.Reload, "Update aerio", detail, Updater.Installed ? pill : null, status);
+            : !Updater.Installed ? $"Version {Updater.Version}. Only the installed {Store.Name} updates itself"
+            : $"Version {Updater.Version}. Builds {Store.Name} again from the source on this computer and installs it";
+        return Row(Ui.Reload, $"Update {Store.Name}", detail, Updater.Installed ? pill : null, status);
     }
 
     /// Сочетание команды в конце описания строки: «. Ctrl+S». Берётся, когда
@@ -330,7 +372,7 @@ sealed class SettingsPage : Grid
     StackPanel[] ShortcutRows()
     {
         var rows = Shortcuts.All.Select(command => Line(command.Title, command.Also is { } also ? $"{also} too" : null, KeyBox(command))).ToList();
-        var all = Line("All shortcuts", "Back to the keys aerio came with",
+        var all = Line("All shortcuts", $"Back to the keys {Store.Name} came with",
             Pill("Reset all shortcuts to defaults", Word("Reset All"), Shortcuts.ResetAll));
         follow.Add(() => all.Visibility = Shortcuts.AnyChanged ? Visibility.Visible : Visibility.Collapsed);
         rows.Add(all);
@@ -661,7 +703,7 @@ sealed class SettingsPage : Grid
             if (await picker.PickSingleFolderAsync() is { } folder) await Ask(profile => Addons.Install(profile, folder.Path));
         }
         var load = Row(Ui.FolderOpen, "Load an unpacked extension",
-            "A folder with a manifest.json: your own, or one exported from another browser. aerio keeps a copy of it",
+            $"A folder with a manifest.json: your own, or one exported from another browser. {Store.Name} keeps a copy of it",
             Pill("Load an unpacked extension", Word("Choose…"), Choose));
 
         // Из магазина: ссылка на страницу расширения или его id. Пока качается,

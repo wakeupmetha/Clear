@@ -10,7 +10,7 @@ namespace Browser;
 /// (Shield). Откуда он взят и под какой лицензией — Extensions\uBlock Origin.txt.
 static class UBlock
 {
-    /// Распакованное расширение рядом с aerio.exe. Движок его не копирует:
+    /// Распакованное расширение рядом с Clear.exe. Движок его не копирует:
     /// папку трогать нельзя, пока он стоит.
     public static string Folder => Path.Combine(AppContext.BaseDirectory, "Extensions", "uBlock0.chromium");
 

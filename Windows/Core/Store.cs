@@ -8,9 +8,13 @@ namespace Browser;
 // вкладок.
 public static class Store
 {
-    /// Имя браузера: заголовок окна и папка хранилища. Строчными — так пишется
-    /// бренд владельца. Имя Search и его иконка принадлежат Office Commun.
-    public const string Name = "aerio";
+    /// Имя браузера: заголовок окна и папка хранилища. Имя Search и его иконка
+    /// принадлежат Office Commun.
+    public const string Name = "Clear";
+
+    /// Прежнее имя (до 2026-11-22): папка данных человека лежит под ним, пока
+    /// первый запуск под новым именем её не перенесёт.
+    const string Former = "aerio";
 
     /// Тестовый запуск: либо он сам так сказал, либо запущен прямо из папки
     /// сборки, а не из установленного приложения. Вторая половина не
@@ -32,9 +36,27 @@ public static class Store
         }
     }
 
-    public static string Folder { get; private set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        World is { } world ? $"{Name} ({world})" : Name);
+    // Тестовые миры не переносятся: их не жалко, и проверка не должна трогать
+    // настоящую папку.
+    public static string Folder { get; private set; } = World is { } world
+        ? Path.Combine(Local, $"{Name} ({world})")
+        : Adopt(Path.Combine(Local, Name), Path.Combine(Local, Former));
+
+    static string Local => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+    /// Папка хранилища now. Если её ещё нет, а прежняя former есть, прежняя
+    /// переезжает под новое имя целиком: вкладки, история, входы на сайты.
+    /// Не переехала — значит, её держит ещё открытый браузер под прежним именем:
+    /// этот запуск работает в прежней папке, ничего не теряя, следующий
+    /// попробует снова.
+    // ponytail: в этот запуск оба браузера делят одну папку; закрыть прежний до
+    // первого запуска нового — и этого не случится.
+    public static string Adopt(string now, string former)
+    {
+        if (Directory.Exists(now) || !Directory.Exists(former)) return now;
+        try { Directory.Move(former, now); return now; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return former; }
+    }
 
     /// Для проверок: всё хранится в указанной папке.
     public static void Use(string folder) => Folder = folder;

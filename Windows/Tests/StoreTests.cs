@@ -13,6 +13,37 @@ static class StoreTests
         Sessions();
         Kept();
         Blocking();
+        Adopting();
+    }
+
+    static void Adopting()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"store-adopt-{Environment.ProcessId}");
+        string now = Path.Combine(root, "Clear"), former = Path.Combine(root, "aerio");
+        void Fresh() { if (Directory.Exists(root)) Directory.Delete(root, true); Directory.CreateDirectory(root); }
+
+        Fresh();
+        Check.Expect(Store.Adopt(now, former) == now && !Directory.Exists(former), "ни новой, ни прежней — новая");
+
+        Fresh();
+        Directory.CreateDirectory(former);
+        File.WriteAllText(Path.Combine(former, "session.json"), "{}");
+        Check.Expect(Store.Adopt(now, former) == now && File.Exists(Path.Combine(now, "session.json")) && !Directory.Exists(former),
+            "прежняя переезжает под новое имя вместе с файлами");
+
+        Fresh();
+        Directory.CreateDirectory(now);
+        Directory.CreateDirectory(former);
+        Check.Expect(Store.Adopt(now, former) == now && Directory.Exists(former), "новая уже есть — прежнюю не трогаем");
+
+        // Прежний браузер ещё открыт и держит файл: переезда нет, данные в прежней папке.
+        Fresh();
+        Directory.CreateDirectory(former);
+        using (File.Open(Path.Combine(former, "held"), FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            Check.Expect(Store.Adopt(now, former) == former && !Directory.Exists(now), "занятая прежняя — работаем в ней, новой нет");
+        Check.Expect(Store.Adopt(now, former) == now, "освободилась — переезжает при следующем запуске");
+
+        Directory.Delete(root, true);
     }
 
     static void Kept()

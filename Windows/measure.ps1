@@ -5,7 +5,7 @@
 #   Windows/measure.ps1 [-Program путь] [-Write]
 #
 # Без -Program — сборка из bin (Debug). Цифры, как у человека, — у упакованной:
-# Portable.zip из pack.ps1, распакованный, current\aerio.exe. -Write дописывает
+# Portable.zip из pack.ps1, распакованный, current\Clear.exe. -Write дописывает
 # строку в таблицу «Расход по версиям» в README (просьба владельца 2026-11-21:
 # копить статистику).
 #
@@ -35,7 +35,7 @@ function Tree {
 function Say($t) { "$($t.Private) МБ ($($t.Count) проц.)" }
 
 # Страница средней тяжести: текст, таблица, немного скрипта.
-$site = Join-Path $env:TEMP "aerio-measure"
+$site = Join-Path $env:TEMP "clear-measure"
 [void](New-Item -ItemType Directory -Force $site)
 $rows = (1..300 | ForEach-Object { "<tr><td>$_</td><td>Row $_ of the table</td><td>$($_ * 7)</td></tr>" }) -join ""
 $text = ("<p>" + ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 40) + "</p>") * 30

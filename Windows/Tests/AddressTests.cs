@@ -91,7 +91,7 @@ static class AddressTests
 
         // Ссылки извне: командная строка второго запуска приходит одной строкой.
         var page = Store.File("résumé #1 100%.html");
-        var exe = Store.File("aerio.exe");
+        var exe = Store.File("Clear.exe");
         File.WriteAllText(exe, "program");
         var words = Address.Words($"\"{exe}\"  https://example.com/a?b=1 --veloapp-x \"{page}\" {Store.File("report.pdf")} mailto:a@b.c \"\"").ToList();
         Check.Expect(words.Count == 7 && words[0] == exe && words[3] == page && words[6] == "", "командная строка по словам: кавычки держат путь с пробелами");
