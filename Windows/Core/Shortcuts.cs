@@ -117,6 +117,9 @@ public static class Shortcuts
         new("edit.findPrevious", "Find Previous", Bind("ctrl+shift+g"), Native: true),
         new("view.fold", "Hide Sidebar", Bind("ctrl+s")),
         new("view.focus", "Focus Mode", Bind("ctrl+shift+f")),
+        // Окно во весь экран: F11, как в браузерах на Windows (в апстриме — Enter
+        // Full Screen, ⌃⌘F). Движок WebView2 сам F11 не делает, страница не забирает.
+        new("view.fullScreen", "Enter Full Screen", Bind("f11"), Yields: false),
         new("view.reload", "Reload Page", Bind("ctrl+r"), Native: true, Also: "F5"),
         new("view.reloadOrigin", "Reload Page From Origin", Bind("ctrl+shift+r"), Native: true, Also: "Ctrl+F5"),
         new("view.inspector", "Developer Tools", Bind("ctrl+shift+i"), Native: true, Also: "F12"),

@@ -1,27 +1,36 @@
-# Значок программы из логотипа: чёрный знак Clear на белой плитке со скруглением,
-# как у оригинала. Плитка нужна: чёрный знак без неё терялся бы на тёмной панели задач.
+# Значок программы из логотипа владельца: logo.svg — уже готовый значок (белая
+# плитка со скруглением, чёрная пилюля, белая C), его только переводим в .ico.
 #
 #   pwsh Windows/App/Assets/icon.ps1      -> clear.ico рядом со скриптом
 #
-# Логотип — logo.svg (залитая пилюля). Рисует WPF: его разбор
-# контура понимает запись SVG, поэтому сторонних программ не нужно.
+# Рисует WPF: прямоугольники (rect, скругление rx) и контуры (path) — каждый своей
+# заливкой, по порядку, как в файле. Разбор контура WPF понимает запись SVG,
+# поэтому сторонних программ не нужно.
+# ponytail: другие элементы SVG (circle, g, transform, stroke) не рисуются;
+# понадобятся — переписать их в path или добавить сюда.
 param([string]$Preview)
 Add-Type -AssemblyName PresentationCore, WindowsBase
 $svg = [xml](Get-Content (Join-Path $PSScriptRoot "logo.svg") -Raw -Encoding UTF8)
-$box = $svg.svg.viewBox -split ' ' | ForEach-Object { [double]::Parse($_, [cultureinfo]::InvariantCulture) }
-$mark = [System.Windows.Media.Geometry]::Parse($svg.svg.g.path.d)
+$invariant = [cultureinfo]::InvariantCulture
+$box = $svg.svg.viewBox -split ' ' | ForEach-Object { [double]::Parse($_, $invariant) }
+function Number($value) { if ($value) { [double]::Parse($value, $invariant) } else { 0 } }
+function Fill($colour) { [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.ColorConverter]::ConvertFromString($colour)) }
 
 function Render([int]$size) {
     $visual = [System.Windows.Media.DrawingVisual]::new()
     $pen = $visual.RenderOpen()
-    $corner = $size * 0.22
-    $pen.DrawRoundedRectangle([System.Windows.Media.Brushes]::White, $null, [System.Windows.Rect]::new(0, 0, $size, $size), $corner, $corner)
-    # Знак занимает три четверти ширины плитки, как S у оригинала, и стоит по центру.
-    $scale = $size * 0.75 / $box[2]
-    $pen.PushTransform([System.Windows.Media.TranslateTransform]::new(($size - $box[2] * $scale) / 2, ($size - $box[3] * $scale) / 2))
-    $pen.PushTransform([System.Windows.Media.ScaleTransform]::new($scale, $scale))
-    $pen.DrawGeometry([System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromRgb(0x17, 0x17, 0x17)), $null, $mark)
-    $pen.Pop(); $pen.Pop(); $pen.Close()
+    $pen.PushTransform([System.Windows.Media.ScaleTransform]::new($size / $box[2], $size / $box[3]))
+    foreach ($node in $svg.svg.ChildNodes) {
+        switch ($node.LocalName) {
+            "rect" {
+                $round = Number $node.rx
+                $frame = [System.Windows.Rect]::new((Number $node.x), (Number $node.y), (Number $node.width), (Number $node.height))
+                $pen.DrawRoundedRectangle((Fill $node.fill), $null, $frame, $round, $round)
+            }
+            "path" { $pen.DrawGeometry((Fill $node.fill), $null, [System.Windows.Media.Geometry]::Parse($node.d)) }
+        }
+    }
+    $pen.Pop(); $pen.Close()
     $bitmap = [System.Windows.Media.Imaging.RenderTargetBitmap]::new($size, $size, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
     $bitmap.Render($visual)
     $png = [System.Windows.Media.Imaging.PngBitmapEncoder]::new()

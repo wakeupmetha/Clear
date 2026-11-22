@@ -205,8 +205,8 @@ sealed partial class MainWindow : Window
             tabs.Forget();
             tabs.History.Flush();
             Settings.Set("window.frame", WindowFrame.Write(new(normal.X, normal.Y, normal.Width, normal.Height)));
-            // Закрыли с видео во весь экран — запоминаем, каким окно было до того.
-            Settings.Set("window.zoomed", (immersed ? kept : AppWindow.Presenter) is OverlappedPresenter { State: OverlappedPresenterState.Maximized });
+            // Закрыли во весь экран (видео или F11) — запоминаем, каким окно было до того.
+            Settings.Set("window.zoomed", (immersed || full ? kept : AppWindow.Presenter) is OverlappedPresenter { State: OverlappedPresenterState.Maximized });
             Disk.Drain();
         };
 
@@ -512,6 +512,7 @@ sealed partial class MainWindow : Window
             ["edit.findPrevious"] = () => find.Look(false),
             ["view.fold"] = ToggleFold,
             ["view.focus"] = ToggleFocus,
+            ["view.fullScreen"] = ToggleFull,
             ["view.reload"] = tabs.Reload,
             ["view.reloadOrigin"] = tabs.ReloadOrigin,
             ["view.inspector"] = tabs.Inspect,

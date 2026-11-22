@@ -10,7 +10,7 @@ namespace Browser;
 /// Строка вкладки в колонке. Перенос SideRow из Sources/Search/Side.swift:
 /// буква сайта, заголовок, крестик под указателем, кольцо, пока грузится,
 /// динамик, пока играет звук или вкладка заглушена.
-sealed class TabRow : Grid
+sealed partial class TabRow : Grid
 {
     public readonly Tab Tab;
     readonly Mark mark = new(Metrics.Mark) { Margin = new Thickness(0, 0, 8, 0) };

@@ -98,8 +98,12 @@ public static class PageKeys
 
     // JSON — это и JS-литерал: кавычки и обратный слеш экранируются верно. Строгий
     // кодировщик заменил бы «+» и «'» на \u-коды: верно, но нечитаемо в скрипте.
-    static string Json<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value, new System.Text.Json.JsonSerializerOptions
+    // Контекст сгенерированный, а не рефлексия (условие Native AOT), но свой:
+    // у Json.Default кодировщик строгий.
+    static readonly Browser.Json Relaxed = new(new System.Text.Json.JsonSerializerOptions
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     });
+    static string Json(string[] value) => System.Text.Json.JsonSerializer.Serialize(value, Relaxed.StringArray);
+    static string Json(IReadOnlyDictionary<int, string> value) => System.Text.Json.JsonSerializer.Serialize(value, Relaxed.IReadOnlyDictionaryInt32String);
 }

@@ -71,7 +71,7 @@ static class Fetching
 // ponytail: список собирается заново на каждую смену (кнопка, на которой
 // стоял фокус, пропадает вместе с ним). Строк здесь не больше полусотни;
 // мешает — менять только изменившуюся строку.
-sealed class DownloadsPage : Grid
+sealed partial class DownloadsPage : Grid
 {
     readonly StackPanel column = new() { MaxWidth = 600, Padding = new Thickness(24, 26, 24, 24), Spacing = 22 };
     /// Строки идущих загрузок: их цифры обновляются по часам, а не на каждый байт.

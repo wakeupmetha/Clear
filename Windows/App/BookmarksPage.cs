@@ -10,7 +10,7 @@ namespace Browser;
 /// папкам. Щелчок открывает сайт в новой вкладке, крестик и Delete убирают.
 // ponytail: список собирается заново на каждую смену и букву поиска. Для
 // сотен закладок незаметно; тысячи из импорта — ItemsRepeater, как в истории.
-sealed class BookmarksPage : Grid
+sealed partial class BookmarksPage : Grid
 {
     readonly Tabs tabs;
     readonly StackPanel list = new() { Spacing = 22 };

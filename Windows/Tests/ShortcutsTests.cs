@@ -68,16 +68,16 @@ static class ShortcutsTests
 
     static void Pages()
     {
-        (string Name, bool Yields)[] seventeen =
+        (string Name, bool Yields)[] eighteen =
         [
             ("ctrl+,", true), ("ctrl+t", false), ("ctrl+shift+n", false), ("ctrl+shift+t", false), ("ctrl+l", true), ("ctrl+w", false),
             ("ctrl+f", true), ("ctrl+s", true),
-            ("ctrl+shift+f", true), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+d", true), ("ctrl+shift+c", true),
+            ("ctrl+shift+f", true), ("f11", false), ("ctrl+tab", false), ("ctrl+shift+tab", false), ("ctrl+d", true), ("ctrl+shift+c", true),
             ("ctrl+shift+v", true), ("ctrl+shift+b", true), ("ctrl+h", true), ("ctrl+shift+delete", false),
         ];
         var numbers = Enumerable.Range(1, 9).Select(n => ($"ctrl+{n}", false));
-        Check.Expect(Shortcuts.Page().SequenceEqual(seventeen.Concat(numbers)),
-            "при умолчаниях странице отдаются ровно семнадцать сочетаний команд с верным Yields и Ctrl+1–Ctrl+9, которые страница не получает");
+        Check.Expect(Shortcuts.Page().SequenceEqual(eighteen.Concat(numbers)),
+            "при умолчаниях странице отдаются ровно восемнадцать сочетаний команд с верным Yields и Ctrl+1–Ctrl+9, которые страница не получает");
 
         Shortcuts.Assign(Combo.Parse("f2")!, "file.print");
         var page = Shortcuts.Page().ToArray();

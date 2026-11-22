@@ -302,7 +302,7 @@ sealed partial class MainWindow
                 if (request.TryGetProperty("code", out var code) && popup.Core is { } inside)
                 {
                     var answer = JsonNode.Parse(await inside.CallDevToolsProtocolMethodAsync("Runtime.evaluate",
-                        JsonSerializer.Serialize(new { expression = code.GetString(), awaitPromise = true, returnByValue = true })));
+                        new JsonObject { ["expression"] = code.GetString(), ["awaitPromise"] = true, ["returnByValue"] = true }.ToJsonString()));
                     said = answer?["result"]?["value"]?.DeepClone() ?? answer?["exceptionDetails"]?["exception"]?["description"]?.DeepClone();
                 }
                 return new JsonObject
@@ -324,14 +324,14 @@ sealed partial class MainWindow
                 tabs.Show(Own.Downloads);
                 var active = new JsonArray();
                 foreach (var entry in Fetching.Active)
-                    active.Add(new JsonObject
+                    active.Add((JsonNode)new JsonObject
                     {
                         ["name"] = entry.Name, ["from"] = entry.From, ["progress"] = entry.Progress,
                         ["paused"] = entry.Paused, ["failed"] = entry.Failed,
                     });
                 var kept = new JsonArray();
                 foreach (var keep in Downloads.Kept)
-                    kept.Add(new JsonObject { ["name"] = keep.Name, ["from"] = keep.From, ["path"] = keep.Path, ["address"] = keep.Address });
+                    kept.Add((JsonNode)new JsonObject { ["name"] = keep.Name, ["from"] = keep.From, ["path"] = keep.Path, ["address"] = keep.Address });
                 return new JsonObject { ["id"] = tabs.Live?.Id.ToString(), ["active"] = active, ["kept"] = kept };
             }
             case "bookmarks":
@@ -340,7 +340,7 @@ sealed partial class MainWindow
                 tabs.Show(Own.Bookmarks);
                 var sites = new JsonArray();
                 foreach (var (node, path) in Bookmarks.Sites())
-                    sites.Add(new JsonObject { ["title"] = node.Title, ["url"] = node.Url, ["path"] = string.Join("/", path) });
+                    sites.Add((JsonNode)new JsonObject { ["title"] = node.Title, ["url"] = node.Url, ["path"] = string.Join("/", path) });
                 return new JsonObject { ["id"] = tabs.Live?.Id.ToString(), ["sites"] = sites };
             }
             case "extension":
@@ -385,7 +385,7 @@ sealed partial class MainWindow
                     ["caption"] = new JsonArray([.. (InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
                         .GetRegionRects(NonClientRegionKind.Caption) ?? []).Select(hole => (JsonNode)new JsonArray(hole.X, hole.Y, hole.Width, hole.Height))]),
                     ["buttons"] = AppWindow.TitleBar.PreferredHeightOption != Microsoft.UI.Windowing.TitleBarHeightOption.Collapsed,
-                    ["focused"] = focused, ["crowned"] = crowned, ["immersed"] = immersed, ["find"] = find.Said,
+                    ["focused"] = focused, ["crowned"] = crowned, ["immersed"] = immersed, ["full"] = full, ["find"] = find.Said,
                     // Где фокус с клавиатуры: имя элемента, его вид и как фокус туда попал.
                     ["at"] = FocusManager.GetFocusedElement(root.XamlRoot) is Control at ? $"{Called(at)} | {at.GetType().Name} | {at.FocusState}" : null,
                     // Номер процесса: bench.py stop закрывает по нему окно штатно.

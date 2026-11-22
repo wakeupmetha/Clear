@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -25,7 +25,7 @@ namespace Browser;
 /// Страница — только вид на Settings. Элементы пишут туда, а окно, вкладки и
 /// сама страница узнают об изменении из Settings.Changed. Поэтому Ctrl+S при
 /// открытых настройках двигает и переключатель на странице.
-sealed class SettingsPage : Grid
+sealed partial class SettingsPage : Grid
 {
     /// Каждый элемент умеет привести себя к тому, что записано в настройках.
     readonly List<Action> follow = [];
@@ -70,7 +70,7 @@ sealed class SettingsPage : Grid
                         () => Settings.Text("look") is "light" or "dark" ? Settings.Text("look")! : "system",
                         look => Settings.Set("look", look)))),
                     Group("Window", Ui.ClosePane,
-                Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; the tabs come out at the left edge" + Keyed("view.fold"),
+                Row(Ui.ClosePane, "Fold the tab column", "The page takes the whole window; in full screen the tabs come out at the left edge" + Keyed("view.fold"),
                     Switch("Fold the tab column", () => Settings.Bool("sidebar.folded"), on => Settings.Set("sidebar.folded", on))),
                 Row(Ui.Focus, "Focus mode", "Only the page: the tabs come out at the left edge, the top bar at the top edge" + Keyed("view.focus"),
                     Switch("Focus mode", () => Settings.Bool("window.focus"), on => Settings.Set("window.focus", on))))]),
@@ -880,7 +880,7 @@ sealed class SettingsPage : Grid
                 var hosts = mine.Select(cookie => cookie.Domain).ToList();
                 foreach (var cookie in mine) jar.DeleteCookie(cookie);
                 foreach (var origin in Address.Origins(site, hosts, tabs.History.Everything().Select(trace => trace.Url)))
-                    await core.CallDevToolsProtocolMethodAsync("Storage.clearDataForOrigin", JsonSerializer.Serialize(new { origin, storageTypes = "all" }));
+                    await core.CallDevToolsProtocolMethodAsync("Storage.clearDataForOrigin", new JsonObject { ["origin"] = origin, ["storageTypes"] = "all" }.ToJsonString());
             });
             Read();
         }

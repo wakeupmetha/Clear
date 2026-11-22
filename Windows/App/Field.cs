@@ -13,7 +13,7 @@ namespace Browser;
 /// у окна нет. Под ним список мест из истории, после каретки серым —
 /// дописывание лучшего совпадения. Ничего из набранного никуда не уходит,
 /// пока не нажат Enter.
-sealed class Field : Grid
+sealed partial class Field : Grid
 {
     readonly Tabs tabs;
     readonly TextBox box, placeholder, ghost;

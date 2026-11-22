@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -152,7 +152,7 @@ sealed class SiteCard
         // кэш и service worker. У WebView2 стирание только всего профиля —
         // берём отладочный протокол.
         await core.CallDevToolsProtocolMethodAsync("Storage.clearDataForOrigin",
-            JsonSerializer.Serialize(new { origin, storageTypes = "all" }));
+            new JsonObject { ["origin"] = origin, ["storageTypes"] = "all" }.ToJsonString());
         core.Reload();
     }
 

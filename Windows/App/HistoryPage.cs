@@ -21,7 +21,7 @@ namespace Browser;
 /// истории; здесь у своей страницы нет движка, а с ним и «назад». Ещё здесь
 /// можно выбрать несколько мест и убрать их разом (просьба владельца): Ctrl+щелчок,
 /// Shift+щелчок, Ctrl+A в списке.
-sealed class HistoryPage : Grid
+sealed partial class HistoryPage : Grid
 {
     readonly Tabs tabs;
     readonly TextBox hunt;
@@ -332,7 +332,7 @@ sealed class HistoryPage : Grid
 
     /// Делает строки списка по мере того, как они входят в вид, и забирает
     /// ушедшие в запас. Так две тысячи мест стоят столько же, сколько двадцать.
-    sealed class Maker(HistoryPage page) : IElementFactory
+    sealed partial class Maker(HistoryPage page) : IElementFactory
     {
         // Запас свой: RecyclePool в Windows App SDK 2.7 наружу не отдан.
         readonly Stack<Row> rows = [];
@@ -383,7 +383,7 @@ sealed class HistoryPage : Grid
     ///
     /// Строка служит разным местам по очереди (см. Maker), поэтому всё, что в
     /// ней написано, переписывает Show.
-    sealed class Row : Grid
+    sealed partial class Row : Grid
     {
         readonly HistoryPage page;
         readonly Mark mark = new(16);

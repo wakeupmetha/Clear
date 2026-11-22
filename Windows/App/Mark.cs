@@ -10,7 +10,7 @@ namespace Browser;
 /// её значок. Mark из Sources/Search/Icons.swift. Значка, которого нет на диске, знак просит сам
 /// (Icons.Ensure): сайт из истории получает свой, даже если его не открывали.
 // Grid, а не Border: Border в WinUI запечатан.
-sealed class Mark : Grid
+sealed partial class Mark : Grid
 {
     /// Картинки по сайту: файл читается один раз, а не на каждую строку
     /// истории. null — значка нет.

@@ -146,7 +146,7 @@ sealed class Actions
             if (window is { } at)
             {
                 await core.CallDevToolsProtocolMethodAsync("Page.enable", "{}");
-                await core.CallDevToolsProtocolMethodAsync("Page.addScriptToEvaluateOnNewDocument", JsonSerializer.Serialize(new { source = Script(at) }));
+                await core.CallDevToolsProtocolMethodAsync("Page.addScriptToEvaluateOnNewDocument", new JsonObject { ["source"] = Script(at) }.ToJsonString());
             }
             core.WindowCloseRequested += (_, _) => flyout.Hide();
             // Ссылка из окна — во вкладку, окно закрывается.

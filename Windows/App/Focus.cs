@@ -34,6 +34,11 @@ sealed partial class MainWindow
     // колонку и полосу. Выход — Esc страницы или её кнопка; уход на другую
     // вкладку тоже выводит (Tabs.Select). В апстриме это делает WebKit своим окном.
     bool immersed;
+    // Окно во весь экран по F11 (Shortcuts, view.fullScreen). Раскладка прежняя:
+    // полоса с адресом остаётся, а сложенная колонка выезжает от левого края, как
+    // в режиме фокуса (просьба владельца 2026-11-22: выезд мышью — только во весь
+    // экран). Выход — снова F11.
+    bool full;
     // Каким окно было до этого: развёрнутое возвращается развёрнутым.
     AppWindowPresenter? kept;
 
@@ -101,22 +106,35 @@ sealed partial class MainWindow
     {
         if (immersed == on) return;
         immersed = on;
-        // Тихое окно во весь экран не встаёт: закрыло бы экран человеку. В нём
-        // проверяется раскладка.
-        if (!App.Quiet)
-        {
-            if (on)
-            {
-                kept = AppWindow.Presenter;
-                AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-            }
-            else if (kept is not null) AppWindow.SetPresenter(kept);
-            else AppWindow.SetPresenter(AppWindowPresenterKind.Default);
-        }
+        // После F11 окно уже во весь экран и после видео в нём остаётся.
+        if (!full) Whole(on);
         watching.Stop();
         crowned = false;
         Conceal();
         Compose();
+    }
+
+    /// F11. Видео во весь экран выходит своим Esc: окно и так во весь экран.
+    void ToggleFull()
+    {
+        if (immersed) return;
+        full = !full;
+        Whole(full);
+        if (!full) Conceal();
+    }
+
+    /// Окно во весь экран или назад, каким было. Тихое окно во весь экран не
+    /// встаёт: закрыло бы экран человеку. В нём проверяется раскладка.
+    void Whole(bool on)
+    {
+        if (App.Quiet) return;
+        if (on)
+        {
+            kept = AppWindow.Presenter;
+            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        }
+        else if (kept is not null) AppWindow.SetPresenter(kept);
+        else AppWindow.SetPresenter(AppWindowPresenterKind.Default);
     }
 
     /// Раскладка по режиму, без движения.

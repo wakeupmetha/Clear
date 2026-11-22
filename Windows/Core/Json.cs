@@ -19,6 +19,7 @@ namespace Browser;
 [JsonSerializable(typeof(List<Installed>))]
 [JsonSerializable(typeof(List<Keep>))]
 [JsonSerializable(typeof(List<Bookmark>))]
+[JsonSerializable(typeof(IReadOnlyDictionary<int, string>))]
 internal sealed partial class Json : JsonSerializerContext;
 
 /// Swift пишет дату числом секунд от 1 января 2001 года UTC.

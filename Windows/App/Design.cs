@@ -203,14 +203,19 @@ static class Ui
 
     /// Стандартное поле Windows рисует рамку, подчёркивание и кнопку очистки.
     /// С этим шаблоном от него остаётся только текст с кареткой.
-    public static ControlTemplate PlainText => (ControlTemplate)XamlReader.Load("""
+    public static ControlTemplate PlainText => Template(XamlReader.Load("""
         <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                          xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="TextBox">
             <ScrollViewer x:Name="ContentElement" IsTabStop="False" ZoomMode="Disabled"
                           HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden"
                           VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Hidden" />
         </ControlTemplate>
-        """);
+        """));
+
+    // Шаблон из разметки — через As, а не приведением: в сборке Native AOT
+    // XamlReader.Load отдаёт обёртку DependencyObject, и (ControlTemplate) падал
+    // при запуске (InvalidCastException). As спрашивает у объекта сам интерфейс.
+    static ControlTemplate Template(object loaded) => WinRT.CastExtensions.As<ControlTemplate>(loaded);
 
     /// Кнопка, переключатель или выбор из нескольких, нарисованные нами. От
     /// стандартного элемента остаётся то, что самим не нарисовать: фокус с
@@ -218,11 +223,11 @@ static class Ui
     /// Шаблон показывает только содержимое.
     public static T Bare<T>(T control, string name, UIElement content) where T : ContentControl
     {
-        control.Template = (ControlTemplate)XamlReader.Load($$"""
+        control.Template = Template(XamlReader.Load($$"""
             <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="{{typeof(T).Name}}">
                 <ContentPresenter Content="{TemplateBinding Content}" />
             </ControlTemplate>
-            """);
+            """));
         control.Content = content;
         // Стандартный стиль оставляет элементу поля и наименьшую ширину.
         control.Padding = new Thickness(0);

@@ -32,7 +32,9 @@ try {
     # появится источник обновлений, dist\Releases надо хранить: из него vpk
     # делает разностные пакеты.
     foreach ($old in "dist\app", "dist\Releases") { if (Test-Path $old) { Remove-Item -Recurse -Force $old -Confirm:$false } }
-    dotnet publish App -c Release -p:Platform=x64 -r win-x64 --self-contained true -o dist\app
+    # DebugType=none: pdb в пакет и так не идёт, а без него библиотеки не держат
+    # путь к папке сборки (в нём имя пользователя этого компьютера) — выпуск публичный.
+    dotnet publish App -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:DebugType=none -o dist\app
     if ($LASTEXITCODE) { throw "publish failed" }
     # Имя пакета не «Clear»: Velopack ставит программу в %LOCALAPPDATA%\<имя пакета>
     # и при удалении стирает эту папку целиком, а в %LOCALAPPDATA%\Clear лежат
