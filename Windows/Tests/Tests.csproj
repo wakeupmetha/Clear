@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Обычная программа с проверками, без тестового фреймворка: так устроены и
-       Tests/*Regression в апстриме. Запуск: dotnet run --project Windows/Tests. -->
+       Tests/*Regression в апстриме. Как запускать — .github/README.md, раздел Build. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
